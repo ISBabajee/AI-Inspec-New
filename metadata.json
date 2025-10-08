@@ -1,0 +1,8 @@
+{
+  "name": "AI-Inspec NEW",
+  "description": "AI-based IR Image Scanner for Industrial Audits. An application for site engineers to capture infrared and digital still images for AI-powered analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "prompt": ""
+}
