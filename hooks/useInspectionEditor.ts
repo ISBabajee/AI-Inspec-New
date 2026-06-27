@@ -1,7 +1,10 @@
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { InspectionRecord, ImageType, NameplateData, AnalysisOutput, UINestedAnalysisOutput, ParsedAnalysisFinding } from '../types';
-import { saveInspectionRecord } from '../src/db';
+import { saveInspectionRecord, addToSyncQueue } from '../src/db';
 import { analyzeImagesWithGemini, analyzeNameplateWithGemini, analyzeMeterDisplayWithGemini } from '../services/geminiService';
+
+type InspectionErrors = Partial<Record<keyof InspectionRecord, string>>;
 
 export const useInspectionEditor = (
     initialInspection: InspectionRecord | null, 
@@ -17,6 +20,8 @@ export const useInspectionEditor = (
     const [imageTypeToManage, setImageTypeToManage] = useState<ImageType | null>(null);
     const [isDsConfirmOpen, setIsDsConfirmOpen] = useState(false);
     const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
+    const [confirmationState, setConfirmationState] = useState<{ isOpen: boolean; type: ImageType | null; base64: string | null }>({ isOpen: false, type: null, base64: null });
+    const [errors, setErrors] = useState<InspectionErrors>({});
 
     // Analysis State
     const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
@@ -27,7 +32,6 @@ export const useInspectionEditor = (
     const [isScannerLoading, setIsScannerLoading] = useState({nameplate: false, meter: false});
 
     // Refs for auto-saving
-    // FIX: Replaced NodeJS.Timeout with ReturnType<typeof setTimeout> for browser compatibility.
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasUnsavedChanges = useRef(false);
     const isAutoSaving = useRef(false);
@@ -40,6 +44,7 @@ export const useInspectionEditor = (
         setInspection(initialInspection);
         setAnalysisApiError(null);
         setScannerError({nameplate: null, meter: null});
+        setErrors({});
         // Reset auto-save state when a new inspection is loaded
         hasUnsavedChanges.current = false;
         isAutoSaving.current = false;
@@ -47,9 +52,56 @@ export const useInspectionEditor = (
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     }, [initialInspection]);
 
+    // --- START: Validation Logic ---
+    const validateInspection = (inspectionData: InspectionRecord): InspectionErrors => {
+        const newErrors: InspectionErrors = {};
+        
+        if (!inspectionData.clientName?.trim()) newErrors.clientName = 'Client Name is required.';
+        if (!inspectionData.location?.trim()) newErrors.location = 'Location is required.';
+        if (!inspectionData.component?.trim()) newErrors.component = 'Component/Equipment Name is required.';
+
+        const numericFields: (keyof InspectionRecord)[] = [
+            'ambientTemp', 'nominalMaxCurrent', 'measuredCurrent', 'referenceTemp', 'voltage',
+            'l1Load', 'l2Load', 'l3Load', 'neutralLoad'
+        ];
+
+        numericFields.forEach(field => {
+            const value = inspectionData[field] as number | null | undefined;
+            if (value !== null && value !== undefined && (typeof value !== 'number' || isNaN(value))) {
+                newErrors[field] = 'Must be a valid number.';
+            }
+        });
+
+        const temp = inspectionData.ambientTemp;
+        if (temp !== null && temp !== undefined) {
+             if (temp < -50 || temp > 150) {
+                newErrors.ambientTemp = 'Temp should be between -50°C and 150°C.';
+            }
+        }
+       
+        if (inspectionData.nominalMaxCurrent !== null && inspectionData.nominalMaxCurrent !== undefined && inspectionData.nominalMaxCurrent <= 0) {
+            newErrors.nominalMaxCurrent = 'Nominal max current must be positive.';
+        }
+        
+        if (inspectionData.measuredCurrent !== null && inspectionData.measuredCurrent !== undefined && inspectionData.measuredCurrent < 0) {
+            newErrors.measuredCurrent = 'Measured current cannot be negative.';
+        }
+
+        return newErrors;
+    };
+
+
     // --- START: Auto-save Logic ---
     const performAutoSave = useCallback(async () => {
         if (!hasUnsavedChanges.current || !inspectionRef.current || isSaving || isAutoSaving.current) {
+            return;
+        }
+
+        // Run validation before auto-saving
+        const validationErrors = validateInspection(inspectionRef.current);
+        if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+            setAutoSaveStatus('error'); // Indicate save failed due to errors
             return;
         }
 
@@ -60,6 +112,7 @@ export const useInspectionEditor = (
             await saveInspectionRecord(inspectionRef.current);
             onSaveSuccess(); // Refresh list in background
             hasUnsavedChanges.current = false;
+            setErrors({}); // Clear errors on successful save
             setAutoSaveStatus('saved');
             setTimeout(() => setAutoSaveStatus('idle'), 2500);
         } catch (err) {
@@ -106,7 +159,20 @@ export const useInspectionEditor = (
             if (typeof value === 'number' && isNaN(value)) {
                 value = null;
             }
-            return { ...prev, [field]: value, updatedAt: new Date() };
+            const newRecord = { ...prev, [field]: value, updatedAt: new Date() };
+             // Real-time validation on the specific field
+            const fieldErrors = validateInspection(newRecord);
+            setErrors(currentErrors => {
+                const newErrors = { ...currentErrors };
+                if (fieldErrors[field]) {
+                    newErrors[field] = fieldErrors[field];
+                } else {
+                    delete newErrors[field]; // Clear error if validation passes
+                }
+                return newErrors;
+            });
+
+            return newRecord;
         });
     }, []);
 
@@ -126,10 +192,16 @@ export const useInspectionEditor = (
         });
     }, []);
 
-    const saveRecord = async () => {
-        if (!inspection) return;
+    const saveRecord = async (): Promise<boolean> => {
+        if (!inspection) return false;
         // Stop any pending auto-save before manual save
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        
+        const validationErrors = validateInspection(inspection);
+        if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+            return false; // Indicate failure
+        }
         
         setIsSaving(true);
         setAutoSaveStatus('saving');
@@ -137,11 +209,14 @@ export const useInspectionEditor = (
             await saveInspectionRecord(inspection);
             onSaveSuccess();
             hasUnsavedChanges.current = false;
+            setErrors({});
             setAutoSaveStatus('saved');
             setTimeout(() => setAutoSaveStatus('idle'), 2500);
+            return true;
         } catch (error) { 
             console.error("Failed to save record", error); 
             setAutoSaveStatus('error');
+            return false;
         }
         finally {
             setIsSaving(false);
@@ -152,6 +227,7 @@ export const useInspectionEditor = (
         if (!initialInspection) return;
         if (window.confirm("Are you sure you want to discard all unsaved changes? This will reload the last saved version of this record.")) {
             setInspection(initialInspection);
+            setErrors({});
         }
     }, [initialInspection]);
 
@@ -242,9 +318,18 @@ export const useInspectionEditor = (
         setLoading(false);
     }, [updateField, setInspection, onSaveSuccess]);
 
+    // Function to manually trigger extraction from existing image
+    const reRunScanner = useCallback((type: 'NAMEPLATE' | 'METER') => {
+        if (!inspection) return;
+        const image = type === 'NAMEPLATE' ? inspection.nameplateImageBase64 : inspection.meterImageBase64;
+        if (image) {
+            runScanner(type, image);
+        } else {
+            alert(`No image available for ${type} to scan. Please capture an image first.`);
+        }
+    }, [inspection, runScanner]);
 
-    // FIX: Refactored to be a higher-order function that accepts the image type.
-    // This resolves the argument count error and fixes a latent bug with drag-and-drop.
+
     const handleImageUpdate = useCallback((type: ImageType) => (base64: string | null, error?: string) => {
         setIsCameraOpen(false);
         setIsUploadOpen(false);
@@ -252,19 +337,33 @@ export const useInspectionEditor = (
             alert(`Image capture/upload error: ${error}`);
             return; 
         }
-
         if (base64) {
-            const fieldMap: Record<ImageType, keyof InspectionRecord> = { 'IR': 'irImageBase64', 'DS': 'dsImageBase64', 'NAMEPLATE': 'nameplateImageBase64', 'METER': 'meterImageBase64' };
-            const timestampMap: Record<ImageType, keyof InspectionRecord> = { 'IR': 'irImageTimestamp', 'DS': 'dsImageTimestamp', 'NAMEPLATE': 'nameplateImageTimestamp', 'METER': 'meterImageTimestamp' };
-            
-            updateField(fieldMap[type], base64);
-            updateField(timestampMap[type], new Date());
-            
-            if (type === 'NAMEPLATE' || type === 'METER') {
-                runScanner(type, base64);
-            }
+            setConfirmationState({ isOpen: true, type: type, base64: base64 });
         }
-    }, [updateField, runScanner]);
+    }, []);
+
+    const confirmImage = useCallback(() => {
+        if (!confirmationState.type || !confirmationState.base64) return;
+        
+        const { type, base64 } = confirmationState;
+        
+        const fieldMap: Record<ImageType, keyof InspectionRecord> = { 'IR': 'irImageBase64', 'DS': 'dsImageBase64', 'NAMEPLATE': 'nameplateImageBase64', 'METER': 'meterImageBase64' };
+        const timestampMap: Record<ImageType, keyof InspectionRecord> = { 'IR': 'irImageTimestamp', 'DS': 'dsImageTimestamp', 'NAMEPLATE': 'nameplateImageTimestamp', 'METER': 'meterImageTimestamp' };
+        
+        updateField(fieldMap[type], base64);
+        updateField(timestampMap[type], new Date());
+        
+        if (type === 'NAMEPLATE' || type === 'METER') {
+            runScanner(type, base64);
+        }
+        
+        setConfirmationState({ isOpen: false, type: null, base64: null });
+    }, [confirmationState, updateField, runScanner]);
+
+    const cancelImageConfirmation = useCallback(() => {
+        setConfirmationState({ isOpen: false, type: null, base64: null });
+    }, []);
+
 
     const removeImage = (type: ImageType) => {
         if (type === 'IR') return; // IR image is mandatory
@@ -281,9 +380,44 @@ export const useInspectionEditor = (
 
     const startAnalysis = async (): Promise<boolean> => {
         if (!inspection || !inspection.irImageBase64) return false;
+
+        const validationErrors = validateInspection(inspection);
+        if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+            return false;
+        }
         
         setIsLoadingAnalysis(true);
         setAnalysisApiError(null);
+        setErrors({});
+
+        if (!navigator.onLine) {
+            // Queue offline
+            const queueItem = {
+                id: inspection.id,
+                queuedAt: new Date(),
+                userId: inspection.userId || '',
+                clientName: inspection.clientName,
+                location: inspection.location,
+                component: inspection.component || ''
+            };
+            try {
+                await addToSyncQueue(queueItem);
+                
+                let pendingRecord = { ...inspection, inspectionStatus: 'pending-analysis' as const, updatedAt: new Date() };
+                await saveInspectionRecord(pendingRecord);
+                setInspection(pendingRecord);
+                onSaveSuccess();
+                
+                setAnalysisApiError("offline_queued");
+            } catch (err: any) {
+                console.error("Failed to add to sync queue", err);
+                setAnalysisApiError(err?.message || "Failed to queue offline report.");
+            } finally {
+                setIsLoadingAnalysis(false);
+            }
+            return true;
+        }
 
         let pendingRecord = { ...inspection, inspectionStatus: 'pending-analysis' as const, updatedAt: new Date() };
         await saveInspectionRecord(pendingRecord);
@@ -358,5 +492,10 @@ export const useInspectionEditor = (
         isScannerLoading,
         scannerError,
         autoSaveStatus,
+        confirmationState,
+        confirmImage,
+        cancelImageConfirmation,
+        errors,
+        reRunScanner,
     };
 };

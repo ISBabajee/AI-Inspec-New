@@ -33,6 +33,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setLoading(true);
         setError(null);
         try {
+            if (navigator.onLine) {
+                try {
+                    const { syncFirestoreToLocal } = await import('../src/db');
+                    await syncFirestoreToLocal();
+                } catch (syncErr) {
+                    console.warn("Could not sync with Firestore on startup, using offline cache:", syncErr);
+                }
+            }
+
             const [inspections, clients, locations, equipment] = await Promise.all([
                 getAllInspections(),
                 getAllClients(),

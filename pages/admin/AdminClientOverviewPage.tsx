@@ -60,7 +60,10 @@ const AdminClientOverviewPage: React.FC = () => {
 
 
   const clientInspections = useMemo(() => {
-    if (!selectedClient) return [];
+    if (!selectedClient) {
+        // Return all recent inspections if no client selected, sorted newest first
+        return allInspections.sort((a,b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 50);
+    }
     return allInspections
         .filter(insp => insp.clientName === selectedClient)
         .sort((a,b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -129,7 +132,7 @@ const AdminClientOverviewPage: React.FC = () => {
 
       {/* Display General Client Stats if no specific client is selected */}
       {!selectedClient && clientNames.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 p-2 md:p-6 rounded-lg shadow-xl overflow-x-auto">
+        <div className="bg-white dark:bg-gray-900 p-2 md:p-6 rounded-lg shadow-xl overflow-x-auto mb-8">
             <h2 className="text-2xl font-semibold text-slate-700 dark:text-white mb-4">Summary Across All Clients</h2>
             <table className="min-w-full divide-y divide-slate-200 dark:divide-gray-700">
                 <thead className="bg-slate-100 dark:bg-gray-800">
@@ -162,60 +165,62 @@ const AdminClientOverviewPage: React.FC = () => {
       )}
 
 
-      {/* Inspections List for Selected Client */}
-      {selectedClient && (
-        <div className="mt-6">
-          <h2 className="text-2xl font-semibold text-slate-700 dark:text-white mb-4">Inspections for: <span className="text-brand-dark dark:text-brand-light-blue">{selectedClient}</span></h2>
-          {clientInspections.length === 0 ? (
-            <p className="text-slate-500 bg-white p-4 rounded-lg shadow text-center dark:bg-gray-900 dark:text-gray-400">No inspections found for {selectedClient}.</p>
-          ) : (
-            <div className="bg-white dark:bg-gray-900 p-2 md:p-4 rounded-lg shadow-xl overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 dark:divide-gray-700">
-                <thead className="bg-slate-100 dark:bg-gray-800">
-                  <tr>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Date</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Location/Equipment</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Site Engineer</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+      {/* Inspections List */}
+      <div className="mt-6">
+        <h2 className="text-2xl font-semibold text-slate-700 dark:text-white mb-4">
+            {selectedClient ? <span>Inspections for: <span className="text-brand-dark dark:text-brand-light-blue">{selectedClient}</span></span> : "All Recent Inspections (Last 50)"}
+        </h2>
+        {clientInspections.length === 0 ? (
+          <p className="text-slate-500 bg-white p-4 rounded-lg shadow text-center dark:bg-gray-900 dark:text-gray-400">No inspections found.</p>
+        ) : (
+          <div className="bg-white dark:bg-gray-900 p-2 md:p-4 rounded-lg shadow-xl overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-gray-700">
+              <thead className="bg-slate-100 dark:bg-gray-800">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Date</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Client</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Location/Equipment</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Site Engineer</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-900 divide-y divide-slate-200 dark:divide-gray-700">
+                {clientInspections.map(inspection => (
+                  <tr key={inspection.id} className="hover:bg-slate-50 dark:hover:bg-gray-800/50">
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300">{new Date(inspection.createdAt).toLocaleDateString()}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300 font-medium">{inspection.clientName}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300">
+                      <div>{inspection.location}</div>
+                      <div className="text-xs text-slate-500 dark:text-gray-400">{inspection.machineDetails}</div>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300">{getSiteEngineerEmail(inspection.userId)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm">
+                      <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(inspection.inspectionStatus)}`}>
+                          {inspection.inspectionStatus.replace('-', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm space-x-4">
+                      <button
+                        onClick={() => openInspectionModal(inspection)}
+                        className="text-brand-orange hover:text-amber-600 font-medium hover:underline"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => handleEditReport(inspection.id)}
+                        className="text-brand-light-blue hover:text-sky-600 font-medium hover:underline"
+                      >
+                        Edit
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="bg-white dark:bg-gray-900 divide-y divide-slate-200 dark:divide-gray-700">
-                  {clientInspections.map(inspection => (
-                    <tr key={inspection.id} className="hover:bg-slate-50 dark:hover:bg-gray-800/50">
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300">{new Date(inspection.createdAt).toLocaleDateString()}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300">
-                        <div>{inspection.location}</div>
-                        <div className="text-xs text-slate-500 dark:text-gray-400">{inspection.machineDetails}</div>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-700 dark:text-gray-300">{getSiteEngineerEmail(inspection.userId)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(inspection.inspectionStatus)}`}>
-                            {inspection.inspectionStatus.replace('-', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm space-x-4">
-                        <button
-                          onClick={() => openInspectionModal(inspection)}
-                          className="text-brand-orange hover:text-amber-600 font-medium hover:underline"
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={() => handleEditReport(inspection.id)}
-                          className="text-brand-light-blue hover:text-sky-600 font-medium hover:underline"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {selectedInspectionForModal && (
         <InspectionSummaryModal

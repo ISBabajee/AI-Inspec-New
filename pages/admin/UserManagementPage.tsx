@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { useAdmin } from '../../hooks/useAdmin';
 import { User, UserRole, UserStatus } from '../../types';
@@ -82,14 +83,19 @@ const CreateUserModal: React.FC<{
 
 const UserManagementPage: React.FC = () => {
   const { allUsers, updateUserStatus, loading: adminLoading } = useAdmin();
-  const [filter, setFilter] = useState<UserStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<UserStatus | 'all'>('all');
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [actionLoading, setActionLoading] = useState<{[key: string]: boolean}>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newUserFeedback, setNewUserFeedback] = useState<{message: string, isError: boolean} | null>(null);
 
-  const siteEngineers = useMemo(() => {
-    return allUsers.filter(u => u.role === UserRole.SITE_ENGINEER);
-  }, [allUsers]);
+  const filteredUsers = useMemo(() => {
+    return allUsers.filter(user => {
+        const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
+        const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+        return matchesStatus && matchesRole;
+    });
+  }, [allUsers, statusFilter, roleFilter]);
 
   const handleUpdateStatus = async (userId: string, newStatus: UserStatus) => {
     setActionLoading(prev => ({...prev, [userId]: true}));
@@ -120,11 +126,6 @@ const UserManagementPage: React.FC = () => {
     return { text: 'Active', className: 'text-green-700 dark:text-green-400' };
   };
 
-  const filteredUsers = siteEngineers.filter(user => {
-    if (filter === 'all') return true;
-    return user.status === filter;
-  });
-
   if (adminLoading && !Object.values(actionLoading).some(v => v)) {
     return <LoadingSpinner text="Loading users..." />;
   }
@@ -141,7 +142,7 @@ const UserManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center">
-        <h1 className="text-3xl font-bold text-slate-800 dark:text-white">Site Engineer Management</h1>
+        <h1 className="text-3xl font-bold text-slate-800 dark:text-white">User Management</h1>
         <button onClick={() => setIsModalOpen(true)} className="mt-3 sm:mt-0 bg-brand-light-blue hover:bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors">
             + Create New User
         </button>
@@ -153,29 +154,45 @@ const UserManagementPage: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center space-x-4">
-        <label htmlFor="statusFilter" className="text-sm font-medium text-slate-700 dark:text-gray-300">Filter by status:</label>
-        <select
-          id="statusFilter"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as UserStatus | 'all')}
-          className="px-3 py-2 border border-slate-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-slate-900 dark:text-white focus:outline-none focus:ring-brand-light-blue focus:border-brand-light-blue sm:text-sm"
-        >
-          <option value="all">All</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-        </select>
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-col">
+            <label htmlFor="roleFilter" className="text-xs font-medium text-slate-700 dark:text-gray-300 mb-1">Role:</label>
+            <select
+            id="roleFilter"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as UserRole | 'all')}
+            className="px-3 py-2 border border-slate-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-slate-900 dark:text-white focus:outline-none focus:ring-brand-light-blue focus:border-brand-light-blue sm:text-sm"
+            >
+            <option value="all">All Roles</option>
+            <option value={UserRole.SITE_ENGINEER}>Site Engineer</option>
+            <option value={UserRole.ADMIN}>Admin</option>
+            </select>
+        </div>
+        <div className="flex flex-col">
+            <label htmlFor="statusFilter" className="text-xs font-medium text-slate-700 dark:text-gray-300 mb-1">Status:</label>
+            <select
+            id="statusFilter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as UserStatus | 'all')}
+            className="px-3 py-2 border border-slate-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-slate-900 dark:text-white focus:outline-none focus:ring-brand-light-blue focus:border-brand-light-blue sm:text-sm"
+            >
+            <option value="all">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            </select>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-900 p-2 md:p-6 rounded-lg shadow-xl overflow-x-auto">
         {filteredUsers.length === 0 ? (
-            <p className="text-slate-500 dark:text-gray-400 text-center py-4">No site engineers found matching this filter.</p>
+            <p className="text-slate-500 dark:text-gray-400 text-center py-4">No users found matching these filters.</p>
         ) : (
         <table className="min-w-full divide-y divide-slate-200 dark:divide-gray-700">
           <thead className="bg-slate-100 dark:bg-gray-800">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Name</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Role</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Email / Phone</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Valid Until</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider">Validity</th>
@@ -189,6 +206,7 @@ const UserManagementPage: React.FC = () => {
               return (
               <tr key={user.id}>
                 <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{user.name}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-600 dark:text-gray-300">{user.role}</td>
                 <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-600 dark:text-gray-300">
                     <div>{user.email}</div>
                     <div className="text-xs">{user.phoneNumber || 'No phone'}</div>

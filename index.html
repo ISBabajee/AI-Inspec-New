@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -105,16 +106,18 @@
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.1.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-    "react/": "https://esm.sh/react@^19.1.0/",
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.6.2",
-    "@google/genai": "https://esm.sh/@google/genai@^1.5.0",
-    "idb": "https://esm.sh/idb@^8.0.0",
-    "xlsx": "https://esm.sh/xlsx@^0.18.5"
+    "react": "https://aistudiocdn.com/react@19.2.0/index.js",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@19.2.0/client.js",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.24.1?external=react",
+    "@google/genai": "https://esm.sh/@google/genai@0.14.0",
+    "idb": "https://esm.sh/idb@8.0.0",
+    "xlsx": "https://esm.sh/xlsx@0.18.5",
+    "react/": "https://aistudiocdn.com/react@19.2.0/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@19.2.0/"
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -123,12 +126,14 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          // Use absolute path to ensure correct origin resolution
           navigator.serviceWorker.register('/service-worker.js')
             .then(registration => {
               console.log('ServiceWorker registration successful with scope: ', registration.scope);
             })
             .catch(error => {
-              console.log('ServiceWorker registration failed: ', error);
+              // Log but don't alarm normal users; SW failure often happens in dev/preview environments
+              console.log('ServiceWorker registration failed (offline mode may be unavailable): ', error);
             });
         });
       }

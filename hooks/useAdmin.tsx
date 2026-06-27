@@ -1,23 +1,19 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { User, LoginRecord, UserStatus, UserRole } from '../types';
 import { useAuth } from './useAuth';
-
-// This is a subset of the logic that used to be in useAuth.tsx
-// It's moved here to separate admin concerns.
+import { db } from '../src/firebase';
+import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 
 const MOCK_USERS_DB_KEY = 'techlens_users';
 const MOCK_LOGIN_RECORDS_DB_KEY = 'techlens_login_records';
 type StoredUser = User & { password?: string; passwordHash?: string; salt?: string };
 
-// Helper to convert ArrayBuffer to a Hex string for storage
 const arrayBufferToHex = (buffer: ArrayBuffer): string => {
   return Array.from(new Uint8Array(buffer))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
 };
 
-// Hashes a password with a given salt using the Web Crypto API
 const hashPassword = async (password: string, salt: string): Promise<string> => {
   const encoder = new TextEncoder();
   const data = encoder.encode(password + salt);
@@ -46,7 +42,6 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [actionLoading, setActionLoading] = useState(false);
     const { initialAuthCompleted } = useAuth();
 
-    // Re-implementing the user/record fetching logic here, separated from useAuth/useData
     const getMockUsers = (): StoredUser[] => {
       try {
         const users = localStorage.getItem(MOCK_USERS_DB_KEY);
@@ -71,17 +66,67 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setLoading(true);
         setError(null);
         try {
-            // Get All Users
+            // Standard Mock Data Loading
             const usersWithSecurityFields = getMockUsers();
-            const usersForContext = usersWithSecurityFields.map(u => {
+            let usersForContext = usersWithSecurityFields.map(u => {
               const { password, passwordHash, salt, ...userWithoutPassword } = u;
               return userWithoutPassword as User;
             });
-            setAllUsers(usersForContext);
 
-            // Get Login Records
             const recordsJson = localStorage.getItem(MOCK_LOGIN_RECORDS_DB_KEY);
-            const records = recordsJson ? JSON.parse(recordsJson).map((r: LoginRecord) => ({...r, loginTimestamp: new Date(r.loginTimestamp), logoutTimestamp: r.logoutTimestamp ? new Date(r.logoutTimestamp) : undefined })) : [];
+            let records = recordsJson ? JSON.parse(recordsJson).map((r: LoginRecord) => ({...r, loginTimestamp: new Date(r.loginTimestamp), logoutTimestamp: r.logoutTimestamp ? new Date(r.logoutTimestamp) : undefined })) : [];
+
+            // If online, let's sync and load real-time users and records from Firestore
+            if (navigator.onLine) {
+              try {
+                // Fetch users
+                const userSnap = await getDocs(collection(db, 'users'));
+                const fsUsers: User[] = [];
+                userSnap.forEach(snap => {
+                  fsUsers.push(snap.data() as User);
+                });
+
+                // Merge and update local storage users (so local mock DB has all Firestore users)
+                const mergedUsers = [...usersWithSecurityFields];
+                fsUsers.forEach(fUser => {
+                  const idx = mergedUsers.findIndex(mu => mu.id === fUser.id || mu.email === fUser.email);
+                  if (idx === -1) {
+                    mergedUsers.push({ ...fUser });
+                  } else {
+                    mergedUsers[idx] = { ...mergedUsers[idx], ...fUser };
+                  }
+                });
+                localStorage.setItem(MOCK_USERS_DB_KEY, JSON.stringify(mergedUsers));
+                usersForContext = mergedUsers.map(({ password, passwordHash, salt, ...u }) => u);
+
+                // Fetch login records
+                const loginSnap = await getDocs(collection(db, 'loginRecords'));
+                const fsRecords: LoginRecord[] = [];
+                loginSnap.forEach(snap => {
+                  const data = snap.data();
+                  fsRecords.push({
+                    ...data,
+                    loginTimestamp: new Date(data.loginTimestamp),
+                    logoutTimestamp: data.logoutTimestamp ? new Date(data.logoutTimestamp) : undefined
+                  } as LoginRecord);
+                });
+
+                // Merge login records
+                const mergedRecords = [...records];
+                fsRecords.forEach(fRec => {
+                  if (!mergedRecords.some(r => r.id === fRec.id)) {
+                    mergedRecords.push(fRec);
+                  }
+                });
+                localStorage.setItem(MOCK_LOGIN_RECORDS_DB_KEY, JSON.stringify(mergedRecords));
+                records = mergedRecords;
+
+              } catch (e) {
+                console.warn("Could not sync admin view with Firestore:", e);
+              }
+            }
+
+            setAllUsers(usersForContext);
             setAllLoginRecords(records);
 
         } catch (err) {
@@ -104,6 +149,15 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (userIndex !== -1) {
             users[userIndex].status = status;
             saveMockUsers(users);
+
+            if (navigator.onLine) {
+              try {
+                await updateDoc(doc(db, 'users', userId), { status: status });
+              } catch (e) {
+                console.warn("Failed to update status on Firestore:", e);
+              }
+            }
+
             setActionLoading(false);
             fetchAdminData(); // Refresh data after update
             return true;
@@ -135,6 +189,16 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         users.push(newUser);
         saveMockUsers(users);
+
+        if (navigator.onLine) {
+          try {
+            const { password, passwordHash: storedHash, salt: storedSalt, ...profile } = newUser;
+            await setDoc(doc(db, 'users', newUser.id), profile);
+          } catch (e) {
+            console.warn("Failed to save newly created user to Firestore:", e);
+          }
+        }
+
         setActionLoading(false);
         fetchAdminData(); // Refresh
         

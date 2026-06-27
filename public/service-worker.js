@@ -1,4 +1,4 @@
-const CACHE_NAME = 'techlens-inspector-v1.3'; // Increment version to force update
+const CACHE_NAME = 'techlens-inspector-v4.1'; // Increment version to force update
 const urlsToCache = [
   '/',
   '/index.html',
@@ -8,14 +8,14 @@ const urlsToCache = [
   '/assets/icons/icon-512x512.png',
   '/assets/icons/icon-maskable-192x192.png',
   '/assets/icons/icon-maskable-512x512.png',
-  // Key CDN resources - be cautious with versioning if not explicit
+  // Key CDN resources
   'https://cdn.tailwindcss.com',
-  'https://esm.sh/react@^19.1.0',
-  'https://esm.sh/react-dom@^19.1.0/client',
-  // FIX: Corrected the version of react-router-dom from a non-existent v7 to the latest stable v6.
-  'https://esm.sh/react-router-dom@^6.25.1',
-  'https://esm.sh/@google/genai@^1.5.0',
-  'https://esm.sh/idb@^8.0.0'
+  'https://aistudiocdn.com/react@19.2.0/index.js',
+  'https://aistudiocdn.com/react-dom@19.2.0/client.js',
+  'https://esm.sh/react-router-dom@6.24.1?external=react',
+  'https://esm.sh/@google/genai@0.14.0',
+  'https://esm.sh/idb@8.0.0',
+  'https://esm.sh/xlsx@0.18.5'
 ];
 
 self.addEventListener('install', event => {
@@ -32,7 +32,7 @@ self.addEventListener('install', event => {
         return Promise.all(cachePromises);
       })
       .then(() => self.skipWaiting()) // Activate new SW immediately
-  );
+  )
 });
 
 self.addEventListener('activate', event => {
@@ -69,7 +69,7 @@ self.addEventListener('fetch', event => {
         })
         .catch(() => caches.match(request).then(response => response || caches.match('/index.html'))) // Fallback to index.html for SPAs
     );
-  } else if (urlsToCache.includes(request.url) || request.destination === 'script' || request.destination === 'style' || request.destination === 'manifest' || request.url.startsWith('https://esm.sh/')) {
+  } else if (urlsToCache.includes(request.url) || request.destination === 'script' || request.destination === 'style' || request.destination === 'manifest' || request.url.startsWith('https://esm.sh/') || request.url.startsWith('https://aistudiocdn.com/')) {
      event.respondWith(
       caches.match(request)
         .then(response => {
@@ -81,7 +81,7 @@ self.addEventListener('fetch', event => {
             networkResponse => {
               if (networkResponse && networkResponse.status === 200) {
                 // Cache the new resource if it's one of our core assets or from a trusted CDN
-                if (urlsToCache.includes(request.url) || request.url.startsWith('https://esm.sh/') || request.url.startsWith('https://cdn.tailwindcss.com')) {
+                if (urlsToCache.includes(request.url) || request.url.startsWith('https://esm.sh/') || request.url.startsWith('https://cdn.tailwindcss.com') || request.url.startsWith('https://aistudiocdn.com/')) {
                     const responseToCache = networkResponse.clone();
                     caches.open(CACHE_NAME)
                         .then(cache => {

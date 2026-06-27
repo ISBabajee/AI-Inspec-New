@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { NameplateData } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
+import { CaptureIcon, AnalysisTabIcon } from '../Icons';
 
 interface EditableDataTableProps {
     title: string;
@@ -10,9 +12,11 @@ interface EditableDataTableProps {
     placeholderRows: Omit<NameplateData, 'id'>[];
     isLoading: boolean;
     error: string | null;
+    onScan?: () => void;
+    onReRunAI?: () => void;
 }
 
-const EditableDataTable: React.FC<EditableDataTableProps> = ({ title, data, onDataChange, imagePresent, placeholderRows, isLoading, error }) => {
+const EditableDataTable: React.FC<EditableDataTableProps> = ({ title, data, onDataChange, imagePresent, placeholderRows, isLoading, error, onScan, onReRunAI }) => {
     const [localData, setLocalData] = useState<NameplateData[]>([]);
 
     useEffect(() => {
@@ -46,11 +50,35 @@ const EditableDataTable: React.FC<EditableDataTableProps> = ({ title, data, onDa
 
     return (
         <div className="bg-slate-50 dark:bg-slate-800/50 p-3 sm:p-4 rounded-lg shadow-sm">
-            <h3 className="text-base sm:text-lg font-semibold text-slate-700 dark:text-gray-200 mb-3">{title}</h3>
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3 gap-2">
+                <h3 className="text-base sm:text-lg font-semibold text-slate-700 dark:text-gray-200">{title}</h3>
+                <div className="flex gap-2">
+                    {onScan && (
+                        <button 
+                            onClick={onScan}
+                            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shadow-sm ${imagePresent ? 'bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-gray-200' : 'text-white bg-sky-500 hover:bg-sky-600'}`}
+                            title={imagePresent ? "Retake photo and re-scan" : "Open camera to scan data"}
+                        >
+                            <CaptureIcon className="w-3.5 h-3.5" />
+                            {imagePresent ? 'Retake Photo' : 'Scan Camera'}
+                        </button>
+                    )}
+                    {imagePresent && onReRunAI && (
+                        <button 
+                            onClick={onReRunAI}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-md transition-colors shadow-sm"
+                            title="Re-run AI extraction on current image"
+                        >
+                            <AnalysisTabIcon className="w-3.5 h-3.5" />
+                            Run AI Scan
+                        </button>
+                    )}
+                </div>
+            </div>
             
             {!imagePresent && (
                 <p className="text-xs text-slate-500 dark:text-gray-400 mb-3 p-2 bg-slate-100 dark:bg-slate-900/50 rounded-md border border-slate-200 dark:border-slate-700">
-                    Capture or upload an image to auto-fill this section with AI, or add data manually below.
+                    Capture an image to auto-fill this section with AI, or add data manually below.
                 </p>
             )}
 

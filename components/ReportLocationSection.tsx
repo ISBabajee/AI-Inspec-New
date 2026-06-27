@@ -37,6 +37,95 @@ const ReportLocationSection: React.FC<ReportLocationSectionProps> = ({
     }
   };
   
+  const calculateEfficiencyMetrics = () => {
+    let ratedAmps: number | null = null;
+    let ratedVolts: number | null = null;
+
+    if (inspection.nameplateData) {
+        for (const item of inspection.nameplateData) {
+            const param = item.parameter.toLowerCase();
+            // Simple fuzzy matching
+            if (param.includes('amp') || param === 'a' || param.includes('current')) {
+                const val = parseFloat(item.value.replace(/[^0-9.]/g, ''));
+                if (!isNaN(val)) ratedAmps = val;
+            }
+            if (param.includes('volt') || param === 'v') {
+                const val = parseFloat(item.value.replace(/[^0-9.]/g, ''));
+                if (!isNaN(val)) ratedVolts = val;
+            }
+        }
+    }
+
+    const measuredAmps = inspection.measuredCurrent;
+    const measuredVolts = inspection.voltage;
+
+    let loadPercentage = null;
+    if (ratedAmps && measuredAmps) {
+        loadPercentage = (measuredAmps / ratedAmps) * 100;
+    }
+
+    let voltageDeviation = null;
+    if (ratedVolts && measuredVolts) {
+        voltageDeviation = ((measuredVolts - ratedVolts) / ratedVolts) * 100;
+    }
+
+    return { ratedAmps, ratedVolts, measuredAmps, measuredVolts, loadPercentage, voltageDeviation };
+  };
+
+  const renderEfficiencySection = () => {
+      const { ratedAmps, ratedVolts, measuredAmps, measuredVolts, loadPercentage, voltageDeviation } = calculateEfficiencyMetrics();
+      
+      if (ratedAmps === null && ratedVolts === null) return null;
+
+      return (
+        <div className="mb-8 print-no-break">
+            <h4 className="text-xl font-semibold text-slate-700 mb-3">Efficiency & Load Analysis</h4>
+            <div className="grid grid-cols-2 gap-6">
+                <div>
+                    <div className="overflow-x-auto shadow-sm rounded-lg border border-slate-300">
+                        <table className="min-w-full divide-y divide-slate-300 text-sm">
+                            <thead className="bg-slate-200">
+                                <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Parameter</th>
+                                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Rated</th>
+                                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Measured</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-slate-300">
+                                <tr>
+                                    <td className="px-4 py-2 font-medium text-slate-800">Current</td>
+                                    <td className="px-4 py-2 text-slate-700">{ratedAmps !== null ? `${ratedAmps} A` : '-'}</td>
+                                    <td className="px-4 py-2 text-slate-700">{measuredAmps !== null ? `${measuredAmps} A` : '-'}</td>
+                                </tr>
+                                <tr>
+                                    <td className="px-4 py-2 font-medium text-slate-800">Voltage</td>
+                                    <td className="px-4 py-2 text-slate-700">{ratedVolts !== null ? `${ratedVolts} V` : '-'}</td>
+                                    <td className="px-4 py-2 text-slate-700">{measuredVolts !== null ? `${measuredVolts} V` : '-'}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div className="space-y-3">
+                    {loadPercentage !== null && (
+                        <div className={`p-3 rounded border ${loadPercentage > 100 ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                            <div className="text-sm font-bold uppercase tracking-wide opacity-70">Load Percentage</div>
+                            <div className="text-2xl font-bold">{loadPercentage.toFixed(1)}%</div>
+                            <div className="text-xs mt-1">{loadPercentage > 100 ? 'OVERLOADED' : 'Normal'}</div>
+                        </div>
+                    )}
+                    {voltageDeviation !== null && (
+                        <div className={`p-3 rounded border ${Math.abs(voltageDeviation) > 5 ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                            <div className="text-sm font-bold uppercase tracking-wide opacity-70">Voltage Deviation</div>
+                            <div className="text-2xl font-bold">{voltageDeviation > 0 ? '+' : ''}{voltageDeviation.toFixed(1)}%</div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+      );
+  };
+
   const renderScannerDataTable = (title: string, data: NameplateData[] | null | undefined) => {
     if (!data || data.length === 0) return null;
     return (
@@ -313,6 +402,7 @@ const ReportLocationSection: React.FC<ReportLocationSectionProps> = ({
         )}
         
         {renderAiDerivedDataJSX()}
+        {renderEfficiencySection()}
         {renderAiAnalysisFindingsJSX()}
 
         {renderScannerDataTable("Extracted Nameplate Data", inspection.nameplateData)}

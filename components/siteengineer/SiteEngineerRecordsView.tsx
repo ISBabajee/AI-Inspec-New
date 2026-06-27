@@ -1,16 +1,64 @@
+
 import React, { useState, useCallback, useRef, useEffect, useMemo, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, InspectionRecord, Client, SiteLocation, NameplateData, ImageType, AIDerivedDataValue, InspectionStatus, ParsedAnalysisFinding, Equipment } from '../../types';
 import CameraCaptureModal from '../CameraCaptureModal';
 import ImageUploadModal from '../ImageUploadModal';
 import LoadingSpinner from '../LoadingSpinner';
-import ImageInputArea from '../ImageInputArea'; 
 import { saveInspectionRecord } from '../../src/db';
 import { useData } from '../../hooks/useData';
 import { useInspectionEditor } from '../../hooks/useInspectionEditor';
 import EditableDataTable from './EditableDataTable';
 import { useAccessibility } from '../../hooks/useAccessibility';
-import { IRScannerIcon, DSScannerIcon, NameplateScannerIcon, MeterScannerIcon } from '../Icons';
+import { IRScannerIcon, DSScannerIcon, NameplateScannerIcon, MeterScannerIcon, CaptureIcon, DetailsTabIcon, AnalysisTabIcon, UploadIcon, BackIcon, CloseIcon, EditIcon } from '../Icons';
+import AddDataModal from './AddDataModal';
+import ImageConfirmationModal from './ImageConfirmationModal';
+import ImageInputArea from '../ImageInputArea';
+
+interface ImageViewerModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  src: string;
+  alt: string;
+}
+
+const ImageViewerModal: React.FC<ImageViewerModalProps> = ({ isOpen, onClose, src, alt }) => {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useAccessibility(modalRef, isOpen, onClose);
+
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[90] p-4"
+      onClick={onClose}
+    >
+      <div
+        ref={modalRef}
+        className="relative bg-white dark:bg-gray-900 p-2 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${alt} image viewer`}
+      >
+        <button
+          onClick={onClose}
+          className="absolute -top-3 -right-3 z-10 p-1.5 bg-white dark:bg-gray-700 rounded-full shadow-lg text-slate-600 dark:text-gray-200 hover:bg-slate-200 dark:hover:bg-gray-600"
+          aria-label="Close image viewer"
+        >
+          <CloseIcon />
+        </button>
+        <img 
+          src={src} 
+          alt={alt} 
+          className="w-full h-auto max-h-[calc(90vh-1rem)] object-contain"
+        />
+        <p className="text-center text-sm font-semibold text-slate-800 dark:text-white mt-2 pb-1">{alt}</p>
+      </div>
+    </div>
+  );
+};
+
 
 const DsConfirmationModal: React.FC<{
   isOpen: boolean;
@@ -44,28 +92,65 @@ const FormSection: React.FC<{title: string, children: React.ReactNode, dataTourI
     </div>
 );
 
-const FormRow: React.FC<{label: React.ReactNode, children: React.ReactNode, dataTourId?: string}> = ({label, children, dataTourId}) => {
+const FormRow: React.FC<{label: React.ReactNode, children: React.ReactNode, dataTourId?: string, error?: string}> = ({label, children, dataTourId, error}) => {
     const id = useId();
+    const errorId = error ? `error-${id}` : undefined;
+
+    const augmentChildren = (nodes: React.ReactNode): React.ReactNode => {
+        return React.Children.map(nodes, node => {
+            if (!React.isValidElement(node)) return node;
+
+            const inputTypes = [FormInput, 'input', 'textarea', 'select'];
+            if (inputTypes.some(type => node.type === type)) {
+                return React.cloneElement(node as React.ReactElement<any>, {
+                    id: node.props.id || id,
+                    'aria-invalid': !!error,
+                    'aria-describedby': errorId,
+                });
+            }
+
+            if (node.props.children) {
+                 return React.cloneElement(node, {
+                    ...node.props,
+                    children: augmentChildren(node.props.children)
+                });
+            }
+
+            return node;
+        });
+    };
+
     return (
         <div data-tour-id={dataTourId}>
             <label htmlFor={id} className="flex items-center text-xs font-medium text-slate-600 dark:text-gray-300 mb-1">{label}</label>
-            {React.Children.map(children, child => {
-                if (React.isValidElement(child)) {
-                    return React.cloneElement(child as React.ReactElement<any>, { id });
-                }
-                return child;
-            })}
+            {augmentChildren(children)}
+            <div className="min-h-[1.25rem]"> {/* Reserve space for error message */}
+              {error && <p id={errorId} className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">{error}</p>}
+            </div>
         </div>
     );
 };
 
-const FormInput: React.FC<{value: string | number | null | undefined, onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void, type?: string, list?: string, rows?: number, customClassName?: string, id?: string}> = ({value, onChange, type="text", list, rows, customClassName = '', id}) => {
+const FormInput: React.FC<{
+    value: string | number | null | undefined, 
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void, 
+    type?: string, 
+    list?: string, 
+    rows?: number, 
+    customClassName?: string, 
+    id?: string,
+    'aria-invalid'?: boolean,
+    'aria-describedby'?: string
+}> = ({value, onChange, type="text", list, rows, customClassName = '', id, 'aria-invalid': ariaInvalid, 'aria-describedby': ariaDescribedby}) => {
+    const errorClasses = ariaInvalid ? 'border-red-500 dark:border-red-500 focus:border-red-500 focus:ring-red-500' : 'border-slate-300 dark:border-gray-600 focus:ring-brand-light-blue focus:border-brand-light-blue';
     const commonProps = {
         id,
+        'aria-invalid': ariaInvalid,
+        'aria-describedby': ariaDescribedby,
         value: value ?? '',
         onChange: onChange,
         list: list,
-        className: `w-full p-1.5 sm:p-2 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white text-sm focus:ring-brand-light-blue focus:border-brand-light-blue min-h-[38px] ${customClassName}`
+        className: `w-full p-1.5 sm:p-2 border rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white text-sm min-h-[38px] ${errorClasses} ${customClassName}`
     };
     if (type === 'textarea') {
         return <textarea {...commonProps} rows={rows || 3} />;
@@ -96,6 +181,30 @@ const AutoSaveIndicator: React.FC<{ status: 'idle' | 'dirty' | 'saving' | 'saved
     return <span className={`text-xs font-medium mr-2 transition-opacity duration-300 ${color}`}>{text}</span>;
 };
 
+type EditorTab = 'capture' | 'details' | 'analysis';
+
+const TabButton: React.FC<{
+    label: string;
+    icon: React.ReactNode;
+    isActive: boolean;
+    onClick: () => void;
+}> = ({ label, icon, isActive, onClick }) => (
+    <button
+        onClick={onClick}
+        role="tab"
+        aria-selected={isActive}
+        className={`flex-1 sm:flex-none sm:flex-grow-0 flex items-center justify-center gap-2 sm:gap-3 px-3 py-2 sm:px-4 sm:py-3 text-sm sm:text-base font-semibold border-b-4 transition-all duration-200 ease-in-out
+            ${isActive
+                ? 'border-sky-500 text-sky-600 dark:text-sky-400'
+                : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-sky-500 dark:hover:text-sky-400 hover:border-sky-300'
+            }
+        `}
+    >
+        {icon}
+        <span>{label}</span>
+    </button>
+);
+
 
 const NAMEPLATE_PLACEHOLDERS: Omit<NameplateData, 'id'>[] = [
     { parameter: 'Model', value: '' },
@@ -115,6 +224,43 @@ const METER_PLACEHOLDERS: Omit<NameplateData, 'id'>[] = [
     { parameter: 'Current L3', value: '' },
 ];
 
+// Efficiency Calculation Helper
+const calculateEfficiencyMetrics = (inspection: InspectionRecord) => {
+    let ratedAmps: number | null = null;
+    let ratedVolts: number | null = null;
+
+    if (inspection.nameplateData) {
+        for (const item of inspection.nameplateData) {
+            const param = item.parameter.toLowerCase();
+            // Simple fuzzy matching for key electrical params
+            if (param.includes('amp') || param === 'a' || param.includes('current')) {
+                const val = parseFloat(item.value.replace(/[^0-9.]/g, ''));
+                if (!isNaN(val)) ratedAmps = val;
+            }
+            if (param.includes('volt') || param === 'v') {
+                const val = parseFloat(item.value.replace(/[^0-9.]/g, ''));
+                if (!isNaN(val)) ratedVolts = val;
+            }
+        }
+    }
+
+    const measuredAmps = inspection.measuredCurrent;
+    const measuredVolts = inspection.voltage;
+
+    let loadPercentage = null;
+    if (ratedAmps && measuredAmps) {
+        loadPercentage = (measuredAmps / ratedAmps) * 100;
+    }
+
+    let voltageDeviation = null;
+    if (ratedVolts && measuredVolts) {
+        voltageDeviation = ((measuredVolts - ratedVolts) / ratedVolts) * 100;
+    }
+
+    return { ratedAmps, ratedVolts, measuredAmps, measuredVolts, loadPercentage, voltageDeviation };
+};
+
+
 export const SiteEngineerRecordsView: React.FC<{
   currentUser: User,
   initialTargetId: string | null;
@@ -133,9 +279,54 @@ export const SiteEngineerRecordsView: React.FC<{
   const [componentFilter, setComponentFilter] = useState('all');
   const [filterStatus, setFilterStatus] = useState<InspectionStatus | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 6;
+  const [activeTab, setActiveTab] = useState<EditorTab>('capture');
   
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    mode: 'location' | 'equipment' | null;
+  }>({ isOpen: false, mode: null });
+  
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
+
+  const closeDetailsModal = useCallback(() => {
+    setDetailsModalOpen(false);
+    if (window.history.state?.modalOpen) {
+      window.history.back();
+    }
+  }, []);
+
+  const closeAnalysisModal = useCallback(() => {
+    setAnalysisModalOpen(false);
+    if (window.history.state?.modalOpen) {
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (detailsModalOpen || analysisModalOpen) {
+      window.history.pushState({ modalOpen: true }, '');
+
+      const handlePopState = () => {
+        setDetailsModalOpen(false);
+        setAnalysisModalOpen(false);
+      };
+
+      window.addEventListener('popstate', handlePopState);
+      return () => {
+        window.removeEventListener('popstate', handlePopState);
+      };
+    }
+  }, [detailsModalOpen, analysisModalOpen]);
+
+  const [viewerState, setViewerState] = useState<{ isOpen: boolean; src: string; alt: string }>({ isOpen: false, src: '', alt: '' });
+  const openImageViewer = (src: string, alt: string) => setViewerState({ isOpen: true, src, alt });
+  const closeImageViewer = () => setViewerState({ isOpen: false, src: '', alt: '' });
+
+  // Refs for modals - Moved to top level to avoid conditional hook execution error
+  const detailsModalRef = useRef<HTMLDivElement>(null);
+  const analysisModalRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (initialClientFilter) {
       setClientFilter(initialClientFilter);
@@ -146,45 +337,40 @@ export const SiteEngineerRecordsView: React.FC<{
     return ['all', ...uniqueClientNames];
   }, [uniqueClientNames]);
 
-  const locationsForFilter = useMemo(() => {
-    if (clientFilter === 'all') return ['all'];
+    const locationsForFilter = useMemo(() => {
+        if (clientFilter === 'all') return ['all'];
+        const locations = new Set<string>();
+        const selectedClient = allClients.find(c => c.name === clientFilter);
+        if (selectedClient) {
+            allSiteLocations
+                .filter(loc => loc.clientId === selectedClient.id)
+                .forEach(loc => locations.add(loc.name));
+        }
+        allInspections
+            .filter(insp => insp.clientName === clientFilter && insp.location)
+            .forEach(insp => locations.add(insp.location!));
 
-    // Get locations from all inspections for the selected client
-    const locationsFromInspections = allInspections
-        .filter(insp => insp.clientName === clientFilter && insp.location)
-        .map(insp => insp.location!);
+        return ['all', ...Array.from(locations).sort((a, b) => a.localeCompare(b))];
+    }, [clientFilter, allInspections, allClients, allSiteLocations]);
 
-    // Get "official" locations from admin-managed data
-    const selectedClient = allClients.find(c => c.name === clientFilter);
-    const officialLocations = selectedClient
-        ? allSiteLocations.filter(loc => loc.clientId === selectedClient.id).map(loc => loc.name)
-        : [];
+    const componentsForFilter = useMemo(() => {
+        if (locationFilter === 'all' || clientFilter === 'all') return ['all'];
+        const components = new Set<string>();
+        const selectedClient = allClients.find(c => c.name === clientFilter);
+        const selectedLocation = selectedClient
+            ? allSiteLocations.find(loc => loc.clientId === selectedClient.id && loc.name === locationFilter)
+            : undefined;
+        if (selectedLocation) {
+            allEquipment
+                .filter(eq => eq.locationId === selectedLocation.id)
+                .forEach(eq => components.add(eq.name));
+        }
+        allInspections
+            .filter(insp => insp.clientName === clientFilter && insp.location === locationFilter && insp.component)
+            .forEach(insp => components.add(insp.component!));
 
-    const combinedLocations = [...new Set([...locationsFromInspections, ...officialLocations])].sort((a,b) => a.localeCompare(b));
-
-    return ['all', ...combinedLocations];
-  }, [clientFilter, allInspections, allClients, allSiteLocations]);
-  
-  const componentsForFilter = useMemo(() => {
-    if (locationFilter === 'all' || clientFilter === 'all') return ['all'];
-    // Get components from all inspections for the selected client and location
-    const componentsFromInspections = allInspections
-        .filter(insp => insp.clientName === clientFilter && insp.location === locationFilter && insp.component)
-        .map(insp => insp.component!);
-
-    // Get "official" equipment from admin-managed data
-    const selectedClient = allClients.find(c => c.name === clientFilter);
-    const selectedLocation = selectedClient 
-        ? allSiteLocations.find(loc => loc.clientId === selectedClient.id && loc.name === locationFilter) 
-        : undefined;
-    const officialEquipment = selectedLocation 
-        ? allEquipment.filter(eq => eq.locationId === selectedLocation.id).map(eq => eq.name)
-        : [];
-        
-    const combinedComponents = [...new Set([...componentsFromInspections, ...officialEquipment])].sort((a,b) => a.localeCompare(b));
-    
-    return ['all', ...combinedComponents];
-  }, [locationFilter, clientFilter, allInspections, allClients, allSiteLocations, allEquipment]);
+        return ['all', ...Array.from(components).sort((a, b) => a.localeCompare(b))];
+    }, [locationFilter, clientFilter, allInspections, allClients, allSiteLocations, allEquipment]);
 
 
   useEffect(() => { setLocationFilter('all'); }, [clientFilter]);
@@ -192,7 +378,6 @@ export const SiteEngineerRecordsView: React.FC<{
 
 
   const inspectionsForList = useMemo(() => {
-    // Optimistically add a new (unsaved) active inspection to the dropdown list.
     if (activeInspection && userInspections.every(insp => insp.id !== activeInspection.id)) {
       const newList = [activeInspection, ...userInspections];
       return newList.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -220,28 +405,29 @@ export const SiteEngineerRecordsView: React.FC<{
       });
   }, [inspectionsForList, filterStatus, sortOrder, activeInspection, userInspections, clientFilter, locationFilter, componentFilter]);
 
-  const { paginatedInspections, totalPages } = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return {
-        paginatedInspections: filteredInspections.slice(startIndex, endIndex),
-        totalPages: Math.ceil(filteredInspections.length / ITEMS_PER_PAGE) || 1
-    };
-  }, [filteredInspections, currentPage]);
-
   useEffect(() => {
-    setCurrentPage(1);
-  }, [clientFilter, locationFilter, componentFilter, filterStatus, sortOrder]);
-
-  useEffect(() => {
-    if (activeInspection && !filteredInspections.some(insp => insp.id === activeInspection.id)) {
-        const isTrulyNew = !userInspections.some(i => i.id === activeInspection.id);
-        if (!isTrulyNew) {
-            setActiveInspection(null);
+    if (initialTargetId && inspectionsForList.length > 0) {
+        const target = inspectionsForList.find(insp => insp.id === initialTargetId);
+        if (target) {
+            setActiveInspection(target);
+            setActiveTab('capture');
+            clearTargetId();
+            return;
         }
     }
-  }, [filteredInspections, activeInspection, userInspections]);
-
+    
+    setActiveInspection(currentActive => {
+        if (currentActive && filteredInspections.some(insp => insp.id === currentActive.id)) {
+            return currentActive;
+        }
+        if (filteredInspections.length > 0) {
+            setActiveTab('capture');
+            return filteredInspections[0];
+        }
+        return null;
+    });
+    
+  }, [filteredInspections, initialTargetId, inspectionsForList, clearTargetId]);
 
   const processPendingAnalyses = useCallback(async () => {
     // This function will be handled by the useInspectionEditor hook internally.
@@ -272,39 +458,62 @@ export const SiteEngineerRecordsView: React.FC<{
       isScannerLoading,
       scannerError,
       autoSaveStatus,
+      confirmationState,
+      confirmImage,
+      cancelImageConfirmation,
+      errors,
+      reRunScanner,
   } = useInspectionEditor(
       activeInspection, 
       () => refreshData(), 
       () => processPendingAnalyses()
   );
-  
-  const handleStartAnalysis = async () => {
-    await startAnalysis();
+
+  const handleManualSave = async () => {
+    const success = await saveRecord();
+    if (!success) {
+      const detailTabFields: (keyof InspectionRecord)[] = [
+        'clientName', 'location', 'component', 'ambientTemp', 'nominalMaxCurrent', 
+        'measuredCurrent', 'referenceTemp', 'voltage', 'l1Load', 'l2Load', 'l3Load', 'neutralLoad'
+      ];
+      if (detailTabFields.some(field => errors[field])) {
+        if (activeTab !== 'details') {
+          setActiveTab('details');
+        }
+        alert('Please fix the errors on the Details tab before saving.');
+      } else {
+        alert('Please fix the validation errors before saving.');
+      }
+    }
   };
   
   const handleDsConfirmAndAnalyze = async () => {
     closeDsConfirm();
-    await handleStartAnalysis();
+    await startAnalysis();
   };
   
   const handleAnalysisClick = async () => {
     if (editedInspection && !editedInspection.dsImageBase64) {
       setIsDsConfirmOpen(true);
     } else {
-      await handleStartAnalysis();
-    }
-  };
-
-
-  useEffect(() => {
-    if (initialTargetId && userInspections.length > 0) {
-      const target = userInspections.find(insp => insp.id === initialTargetId);
-      if (target) {
-        setActiveInspection(target);
-        clearTargetId();
+      const success = await startAnalysis();
+      if (!success) {
+        const detailTabFields: (keyof InspectionRecord)[] = [
+          'clientName', 'location', 'component', 'ambientTemp', 'nominalMaxCurrent',
+          'measuredCurrent', 'referenceTemp', 'voltage', 'l1Load', 'l2Load', 'l3Load', 'neutralLoad'
+        ];
+        if (detailTabFields.some(field => errors[field])) {
+          setDetailsModalOpen(true); // Open details modal on mobile
+          if (activeTab !== 'details') { // Switch tab on desktop
+            setActiveTab('details');
+          }
+          alert('Please fill in all required fields on the Details tab before running analysis.');
+        } else {
+          alert('Please fix validation errors before running analysis.');
+        }
       }
     }
-  }, [initialTargetId, userInspections, clearTargetId]);
+  };
   
     useEffect(() => {
         const updateOnlineStatus = () => {
@@ -330,7 +539,17 @@ export const SiteEngineerRecordsView: React.FC<{
     setSortOrder('newest');
     setClientFilter('all');
   };
-  
+
+  const currentClient = useMemo(() => {
+    if (!editedInspection?.clientName) return null;
+    return allClients.find(c => c.name === editedInspection.clientName) || null;
+  }, [editedInspection?.clientName, allClients]);
+
+  const currentLocation = useMemo(() => {
+    if (!currentClient || !editedInspection?.location) return null;
+    return allSiteLocations.find(l => l.clientId === currentClient.id && l.name === editedInspection.location) || null;
+  }, [currentClient, editedInspection?.location, allSiteLocations]);
+
   const filteredLocations = editedInspection?.clientName ? allSiteLocations.filter(loc => {
     const client = allClients.find(c => c.name === editedInspection.clientName);
     return client && loc.clientId === client.id;
@@ -360,6 +579,23 @@ export const SiteEngineerRecordsView: React.FC<{
         updateField('component', selectedEquipment.name);
         updateField('machineDetails', selectedEquipment.details);
     }
+  };
+  
+  const openAddModal = (mode: 'location' | 'equipment') => {
+    if (mode === 'location' && !currentClient) {
+        alert("Please select a client before adding a new location.");
+        return;
+    }
+    if (mode === 'equipment' && !currentLocation) {
+        alert("Please select a location before adding new equipment.");
+        return;
+    }
+    setModalConfig({ isOpen: true, mode });
+  };
+  
+  const handleModalSave = () => {
+    refreshData();
+    setModalConfig({ isOpen: false, mode: null });
   };
 
   const renderAIDataTable = (data: AIDerivedDataValue[] | undefined) => {
@@ -447,70 +683,316 @@ const getStatusColor = (status: InspectionStatus) => {
     }
 };
 
+const EfficiencyAnalysis: React.FC<{ inspection: InspectionRecord }> = ({ inspection }) => {
+    const metrics = calculateEfficiencyMetrics(inspection);
+    const { ratedAmps, ratedVolts, measuredAmps, measuredVolts, loadPercentage, voltageDeviation } = metrics;
+
+    if (ratedAmps === null && ratedVolts === null) {
+        return (
+            <FormSection title="Efficiency & Load Analysis">
+                <p className="text-sm text-slate-500 dark:text-gray-400 italic">
+                    To see efficiency analysis, please ensure Nameplate Data includes Rated Current (Amps) or Rated Voltage (Volts) and fill in the Operational Data above.
+                </p>
+            </FormSection>
+        );
+    }
+
+    return (
+        <FormSection title="Efficiency & Load Analysis">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-gray-300 mb-2">Comparison Table</h4>
+                    <div className="overflow-x-auto border border-slate-300 dark:border-gray-600 rounded-md">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-slate-200 dark:bg-gray-700">
+                                <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-gray-300">Parameter</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-gray-300">Rated (Nameplate)</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-gray-300">Measured</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-gray-600">
+                                <tr>
+                                    <td className="px-3 py-2 font-medium text-slate-800 dark:text-white">Current (Amps)</td>
+                                    <td className="px-3 py-2 text-slate-700 dark:text-gray-300">{ratedAmps !== null ? `${ratedAmps} A` : 'N/A'}</td>
+                                    <td className="px-3 py-2 text-slate-700 dark:text-gray-300">{measuredAmps !== null ? `${measuredAmps} A` : 'N/A'}</td>
+                                </tr>
+                                <tr>
+                                    <td className="px-3 py-2 font-medium text-slate-800 dark:text-white">Voltage (Volts)</td>
+                                    <td className="px-3 py-2 text-slate-700 dark:text-gray-300">{ratedVolts !== null ? `${ratedVolts} V` : 'N/A'}</td>
+                                    <td className="px-3 py-2 text-slate-700 dark:text-gray-300">{measuredVolts !== null ? `${measuredVolts} V` : 'N/A'}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    {loadPercentage !== null && (
+                        <div className={`p-4 rounded-lg border ${loadPercentage > 100 ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                            <h5 className="font-bold text-lg mb-1">Load Percentage</h5>
+                            <p className="text-3xl font-extrabold">{loadPercentage.toFixed(1)}%</p>
+                            <p className="text-xs mt-1">{loadPercentage > 100 ? 'Warning: Equipment Overloaded' : 'Operating within rated capacity'}</p>
+                        </div>
+                    )}
+                    {voltageDeviation !== null && (
+                        <div className={`p-4 rounded-lg border ${Math.abs(voltageDeviation) > 5 ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                            <h5 className="font-bold text-lg mb-1">Voltage Deviation</h5>
+                            <p className="text-3xl font-extrabold">{voltageDeviation > 0 ? '+' : ''}{voltageDeviation.toFixed(1)}%</p>
+                            <p className="text-xs mt-1">{Math.abs(voltageDeviation) > 5 ? 'Warning: Significant voltage deviation' : 'Voltage within normal range'}</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </FormSection>
+    );
+};
+
+
   if (loading) return <LoadingSpinner text="Loading inspection records..." />;
   
+  const imageTypes: { type: ImageType; title: string; icon: React.ReactNode; }[] = editedInspection ? [
+    { type: 'IR', title: 'Infrared (IR)', icon: <IRScannerIcon /> },
+    { type: 'DS', title: 'Digital Still (DS)', icon: <DSScannerIcon /> },
+    { type: 'NAMEPLATE', title: 'Nameplate', icon: <NameplateScannerIcon /> },
+    { type: 'METER', title: 'Meter', icon: <MeterScannerIcon /> },
+  ] : [];
+
+  const imageSrcMap = editedInspection ? {
+      IR: editedInspection.irImageBase64,
+      DS: editedInspection.dsImageBase64,
+      NAMEPLATE: editedInspection.nameplateImageBase64,
+      METER: editedInspection.meterImageBase64,
+  } : null;
+
+  const detailsContent = editedInspection ? (
+    <>
+      <FormSection title="Location & Equipment Information" dataTourId="details-location-equipment">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <FormRow label="Client" error={errors.clientName}>
+            <FormInput value={editedInspection.clientName} onChange={e => updateField('clientName', e.target.value)} list="client-list" />
+            <datalist id="client-list">{allClients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+          </FormRow>
+          <FormRow label={<>Location <button onClick={() => openAddModal('location')} className="ml-2 text-xs text-sky-500 hover:underline" disabled={!currentClient}>+ New</button></>} error={errors.location}>
+            <FormInput value={editedInspection.location} onChange={e => updateField('location', e.target.value)} list="location-list" />
+            <datalist id="location-list">{filteredLocations.map(l => <option key={l.id} value={l.name} />)}</datalist>
+          </FormRow>
+          <FormRow label="Pre-defined Equipment">
+            <select
+              value={editedInspection.equipmentId || ''}
+              onChange={(e) => handleEquipmentSelect(e.target.value)}
+              className="w-full p-1.5 sm:p-2 border rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white text-sm border-slate-300 dark:border-gray-600 focus:ring-brand-light-blue focus:border-brand-light-blue"
+              disabled={availableEquipment.length === 0}
+            >
+              <option value="">-- Select or Enter Manually --</option>
+              {availableEquipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+            </select>
+          </FormRow>
+          <FormRow label={<>Equipment Name / ID <button onClick={() => openAddModal('equipment')} className="ml-2 text-xs text-sky-500 hover:underline" disabled={!currentLocation}>+ New</button></>} error={errors.component}>
+            <FormInput value={editedInspection.component} onChange={e => updateField('component', e.target.value)} />
+          </FormRow>
+          <div className="sm:col-span-2">
+            <FormRow label="Equipment Details (Model, S/N, etc.)">
+              <FormInput value={editedInspection.machineDetails} onChange={e => updateField('machineDetails', e.target.value)} />
+            </FormRow>
+          </div>
+        </div>
+      </FormSection>
+  
+      <FormSection title="Job & Status Information" dataTourId="details-job-status">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4">
+          <FormRow label="Job ID / Ref"><FormInput value={editedInspection.jobIdReference} onChange={e => updateField('jobIdReference', e.target.value)} /></FormRow>
+          <FormRow label="PM Work Order #"><FormInput value={editedInspection.pmWorkOrder} onChange={e => updateField('pmWorkOrder', e.target.value)} /></FormRow>
+          <FormRow label="Item ID #"><FormInput value={editedInspection.itemId} onChange={e => updateField('itemId', e.target.value)} /></FormRow>
+          <FormRow label="Operation Priority"><FormInput value={editedInspection.operationPriority} onChange={e => updateField('operationPriority', e.target.value)} /></FormRow>
+        </div>
+      </FormSection>
+  
+      <FormSection title="Operational & Trending Data" dataTourId="details-operational-data">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4">
+          <FormRow label={<>Ambient Temp (&deg;C)</>} error={errors.ambientTemp}><FormInput value={editedInspection.ambientTemp} onChange={e => updateField('ambientTemp', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>Nominal Max Current (A)</>} error={errors.nominalMaxCurrent}><FormInput value={editedInspection.nominalMaxCurrent} onChange={e => updateField('nominalMaxCurrent', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>Measured Current (A)</>} error={errors.measuredCurrent}><FormInput value={editedInspection.measuredCurrent} onChange={e => updateField('measuredCurrent', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>Reference Temp (&deg;C)</>} error={errors.referenceTemp}><FormInput value={editedInspection.referenceTemp} onChange={e => updateField('referenceTemp', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>Voltage (V)</>} error={errors.voltage}><FormInput value={editedInspection.voltage} onChange={e => updateField('voltage', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>L1 Load (A)</>} error={errors.l1Load}><FormInput value={editedInspection.l1Load} onChange={e => updateField('l1Load', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>L2 Load (A)</>} error={errors.l2Load}><FormInput value={editedInspection.l2Load} onChange={e => updateField('l2Load', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>L3 Load (A)</>} error={errors.l3Load}><FormInput value={editedInspection.l3Load} onChange={e => updateField('l3Load', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label={<>Neutral Load (A)</>} error={errors.neutralLoad}><FormInput value={editedInspection.neutralLoad} onChange={e => updateField('neutralLoad', e.target.value === '' ? null : parseFloat(e.target.value))} type="number" /></FormRow>
+          <FormRow label="Ultrasonic Reading"><FormInput value={editedInspection.ultrasonicReading} onChange={e => updateField('ultrasonicReading', e.target.value)} /></FormRow>
+        </div>
+      </FormSection>
+  
+      <FormSection title="Notes" dataTourId="details-notes">
+        <FormRow label="Site Engineer Notes">
+          <FormInput value={editedInspection.technicianNotes} onChange={e => updateField('technicianNotes', e.target.value)} type="textarea" />
+        </FormRow>
+      </FormSection>
+  
+      <EditableDataTable 
+        title="Nameplate Data" 
+        data={editedInspection.nameplateData} 
+        onDataChange={(newData) => updateField('nameplateData', newData)} 
+        imagePresent={!!editedInspection.nameplateImageBase64} 
+        placeholderRows={NAMEPLATE_PLACEHOLDERS} 
+        isLoading={isScannerLoading.nameplate} 
+        error={scannerError.nameplate} 
+        onScan={() => openCamera('NAMEPLATE')}
+        onReRunAI={() => reRunScanner('NAMEPLATE')}
+      />
+      <EditableDataTable 
+        title="Meter Data" 
+        data={editedInspection.meterData} 
+        onDataChange={(newData) => updateField('meterData', newData)} 
+        imagePresent={!!editedInspection.meterImageBase64} 
+        placeholderRows={METER_PLACEHOLDERS} 
+        isLoading={isScannerLoading.meter} 
+        error={scannerError.meter} 
+        onScan={() => openCamera('METER')}
+        onReRunAI={() => reRunScanner('METER')}
+      />
+    </>
+  ) : null;
+
+  const analysisContent = editedInspection ? (
+    <div className="space-y-6">
+        <div className="flex justify-center">
+            <button
+                onClick={handleAnalysisClick}
+                disabled={!editedInspection.irImageBase64 || isLoadingAnalysis || editedInspection.inspectionStatus === 'pending-analysis'}
+                className="px-6 py-3 bg-brand-orange hover:bg-amber-600 text-white font-semibold rounded-lg shadow-lg text-base disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2"
+                data-tour-id="analyze-btn"
+            >
+                {isLoadingAnalysis ? <LoadingSpinner size="sm" /> : <AnalysisTabIcon />}
+                {editedInspection.analysisOutput ? 'Re-run AI Analysis' : 'Run AI Analysis'}
+            </button>
+        </div>
+        {analysisApiError && (
+            analysisApiError === 'offline_queued' ? (
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 p-4 rounded-lg text-sm text-center font-medium" role="alert">
+                    ⏳ You are currently offline. This report has been successfully saved locally and added to your offline sync queue. It will automatically upload and process as soon as internet connection is restored.
+                </div>
+            ) : (
+                <p className="text-red-600 bg-red-100 dark:bg-red-900/50 dark:text-red-300 p-3 rounded-md text-sm text-center" role="alert">{analysisApiError}</p>
+            )
+        )}
+        {isLoadingAnalysis && <p className="text-sky-600 dark:text-sky-400 text-center text-sm font-medium">Analysis in progress... This may take a moment.</p>}
+        
+        {editedInspection.analysisOutput ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                    <EfficiencyAnalysis inspection={editedInspection} />
+                </div>
+
+                <FormSection title="Problem Details (AI Populated)">
+                    <div className="space-y-2">
+                        <FormRow label="Fault Item/Description"><FormDisplay value={editedInspection.faultItemDescription} /></FormRow>
+                        <FormRow label="Problem Item"><FormDisplay value={editedInspection.problemItem} /></FormRow>
+                        <FormRow label="Problem Type"><FormDisplay value={editedInspection.problemType} /></FormRow>
+                        <FormRow label="Problem Manufacturer"><FormDisplay value={editedInspection.problemManufacturer} /></FormRow>
+                        <FormRow label="Problem Anomaly"><FormDisplay value={editedInspection.problemAnomaly} /></FormRow>
+                        <FormRow label="Suspected Root Cause"><FormDisplay value={editedInspection.problemRootCause} /></FormRow>
+                        <FormRow label="Recommended Remedial Action"><FormDisplay value={editedInspection.problemRemedial} /></FormRow>
+                    </div>
+                </FormSection>
+
+                <FormSection title="AI Analysis Data">
+                    {renderAIDataTable(editedInspection.analysisOutput?.derivedData)}
+                </FormSection>
+                
+                <div className="md:col-span-2">
+                    <FormSection title="AI Analysis Findings">
+                        {renderEditableFindingsTable(editedInspection.analysisOutput?.findings)}
+                    </FormSection>
+                </div>
+            </div>
+        ) : <p className="text-center text-slate-500 dark:text-gray-400 text-sm py-4">Run AI analysis to see results here.</p>}
+    </div>
+) : null;
+
+
   return (
     <div className="flex flex-col h-full">
+      <ImageViewerModal isOpen={viewerState.isOpen} onClose={closeImageViewer} src={viewerState.src} alt={viewerState.alt} />
       <CameraCaptureModal isOpen={isCameraOpen} onClose={closeCamera} onCapture={handleImageUpdate(imageTypeToManage || 'IR')} imageType={imageTypeToManage || 'IR'} />
       <ImageUploadModal isOpen={isUploadOpen} onClose={closeUpload} onUpload={handleImageUpdate(imageTypeToManage || 'IR')} imageType={imageTypeToManage || 'IR'} />
       <DsConfirmationModal isOpen={isDsConfirmOpen} onClose={closeDsConfirm} onAddDsImage={() => { closeDsConfirm(); openCamera('DS'); }} onProceedWithoutDs={handleDsConfirmAndAnalyze} />
+      {currentClient && modalConfig.isOpen && (
+        <AddDataModal
+            isOpen={modalConfig.isOpen}
+            onClose={() => setModalConfig({ isOpen: false, mode: null })}
+            onSave={handleModalSave}
+            mode={modalConfig.mode!}
+            client={currentClient}
+            location={currentLocation || undefined}
+        />
+      )}
+      <ImageConfirmationModal
+          isOpen={confirmationState.isOpen}
+          imageSrc={confirmationState.base64 ? `data:image/png;base64,${confirmationState.base64}` : null}
+          onConfirm={confirmImage}
+          onRetake={() => {
+              const type = confirmationState.type;
+              cancelImageConfirmation(); 
+              if (type) openCamera(type);
+          }}
+          onReplace={() => {
+              const type = confirmationState.type;
+              cancelImageConfirmation();
+              if (type) openUpload(type);
+          }}
+          onClose={cancelImageConfirmation}
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full">
         {/* Left Column: List and Filters */}
-        <div className="lg:col-span-1 flex flex-col h-full bg-slate-100 dark:bg-slate-900/50 p-3 rounded-lg overflow-hidden">
-            <div className="shrink-0 mb-3">
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white">Records</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{syncStatusMessage}</p>
-            </div>
-            
-            <div className="shrink-0 mb-3 p-3 bg-white dark:bg-slate-800/50 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
-                <h3 className="text-base font-semibold text-slate-700 dark:text-gray-200 mb-2">Filter & Sort</h3>
-                <div className="space-y-2 text-sm">
-                    <div>
-                        <label htmlFor="client-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Client</label>
-                        <select id="client-filter" value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white">
-                            {clientNamesForFilter.map(name => <option key={name} value={name}>{name === 'all' ? 'All Clients' : name}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="location-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Location</label>
-                        <select id="location-filter" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} disabled={clientFilter === 'all'} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed">
-                            {locationsForFilter.map(name => <option key={name} value={name}>{name === 'all' ? 'All Locations' : name}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="component-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Equipment</label>
-                        <select id="component-filter" value={componentFilter} onChange={(e) => setComponentFilter(e.target.value)} disabled={locationFilter === 'all'} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed">
-                            {componentsForFilter.map(name => <option key={name} value={name}>{name === 'all' ? 'All Equipment' : name}</option>)}
-                        </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 pt-2">
+        <div className={`${activeInspection ? 'hidden' : 'flex'} lg:flex lg:col-span-1 flex-col h-full bg-slate-100 dark:bg-slate-900/50 p-3 rounded-lg overflow-hidden`}>
+            <details className="shrink-0 mb-3" open={window.innerWidth > 768}>
+                <summary className="font-semibold text-slate-700 dark:text-gray-200 cursor-pointer p-3 bg-white dark:bg-slate-800/50 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">Filter & Sort</summary>
+                <div className="mt-2 p-3 bg-white dark:bg-slate-800/50 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+                    <div className="space-y-2 text-sm">
                         <div>
-                            <label htmlFor="status-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Status</label>
-                            <select id="status-filter" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white">
-                                <option value="all">All</option>
-                                <option value="draft">Draft</option>
-                                <option value="pending-analysis">Pending</option>
-                                <option value="analyzed">Analyzed</option>
-                                <option value="analysis-error">Error</option>
+                            <label htmlFor="client-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Client</label>
+                            <select id="client-filter" value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white">
+                                {clientNamesForFilter.map(name => <option key={name} value={name}>{name === 'all' ? 'All Clients' : name}</option>)}
                             </select>
                         </div>
-                         <div>
-                            <label htmlFor="sort-order" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Sort By</label>
-                            <select id="sort-order" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as any)} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white">
-                                <option value="newest">Newest First</option>
-                                <option value="oldest">Oldest First</option>
+                        <div>
+                            <label htmlFor="location-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Location</label>
+                            <select id="location-filter" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} disabled={clientFilter === 'all'} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                                {locationsForFilter.map(name => <option key={name} value={name}>{name === 'all' ? 'All Locations' : name}</option>)}
                             </select>
                         </div>
-                    </div>
-                    <div className="pt-2">
-                         <button onClick={clearFilters} className="w-full text-xs px-2 py-2 bg-slate-500 hover:bg-slate-600 text-white rounded shadow-sm">Clear Filters</button>
+                        <div>
+                            <label htmlFor="component-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Equipment</label>
+                            <select id="component-filter" value={componentFilter} onChange={(e) => setComponentFilter(e.target.value)} disabled={locationFilter === 'all'} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                                {componentsForFilter.map(name => <option key={name} value={name}>{name === 'all' ? 'All Equipment' : name}</option>)}
+                            </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-2">
+                            <div>
+                                <label htmlFor="status-filter" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Status</label>
+                                <select id="status-filter" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white">
+                                    <option value="all">All</option>
+                                    <option value="draft">Draft</option>
+                                    <option value="pending-analysis">Pending</option>
+                                    <option value="analyzed">Analyzed</option>
+                                    <option value="analysis-error">Error</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label htmlFor="sort-order" className="text-xs font-medium text-slate-600 dark:text-gray-300 mb-1 block">Sort By</label>
+                                <select id="sort-order" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as any)} className="w-full px-2 py-1.5 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white">
+                                    <option value="newest">Newest First</option>
+                                    <option value="oldest">Oldest First</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </details>
             
             <div className="flex-grow overflow-y-auto space-y-2 pr-1">
-                 {paginatedInspections.length > 0 ? paginatedInspections.map(insp => (
+                 {filteredInspections.map(insp => (
                     <button
                         key={insp.id}
                         onClick={() => handleSelectInspection(insp.id)}
@@ -529,166 +1011,185 @@ const getStatusColor = (status: InspectionStatus) => {
                           </span>
                         </div>
                     </button>
-                )) : (
+                ))}
+                {filteredInspections.length === 0 && (
                     <p className="text-center text-sm text-slate-500 dark:text-gray-400 pt-8">No records match filters.</p>
                 )}
-            </div>
-
-            <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 shrink-0">
-                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-white dark:bg-slate-700 text-xs font-semibold rounded-md shadow disabled:opacity-50">Prev</button>
-                <span className="text-xs font-medium text-slate-600 dark:text-gray-300">Page {currentPage} of {totalPages}</span>
-                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-white dark:bg-slate-700 text-xs font-semibold rounded-md shadow disabled:opacity-50">Next</button>
             </div>
         </div>
 
         {/* Right Column: Editor */}
-        <div className="lg:col-span-3 overflow-y-auto pr-1">
+        <div className={`${activeInspection ? 'flex' : 'hidden'} lg:flex lg:col-span-3 flex-col h-full`}>
         {!editedInspection ? (
-            <div className="flex items-center justify-center h-full rounded-lg bg-slate-50 dark:bg-slate-800/30 border-2 border-dashed border-slate-300 dark:border-slate-700">
+            <div className="flex-grow items-center justify-center h-full rounded-lg bg-slate-50 dark:bg-slate-800/30 border-2 border-dashed border-slate-300 dark:border-slate-700 hidden lg:flex">
                 <p className="text-slate-500 dark:text-gray-400 text-center">Select an inspection from the list to view or edit.</p>
             </div>
         ) : (
-            <div className="space-y-8">
-              <div className="flex justify-end items-center space-x-2">
-                  <AutoSaveIndicator status={autoSaveStatus} />
-                  <button onClick={() => navigate(`/report/${editedInspection.id}`)} className="text-xs sm:text-sm px-2 py-1.5 sm:px-3 sm:py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow">Print Report</button>
-                  <button onClick={saveRecord} disabled={isSaving} className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-1.5 px-3 rounded-lg shadow text-sm disabled:opacity-50">{isSaving ? 'Saving...' : 'Save'}</button>
-              </div>
-
-              <FormSection title="Location/Equipment Information" dataTourId="location-info-group">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 sm:gap-y-4">
-                      <FormRow label="Client Name" dataTourId="client-name-input">
-                          <FormInput value={editedInspection.clientName} onChange={e => updateField('clientName', e.target.value)} list="client-list" />
-                          <datalist id="client-list">{allClients.map(c => <option key={c.id} value={c.name} />)}</datalist>
-                      </FormRow>
-                      <FormRow label="Location">
-                          <FormInput value={editedInspection.location} onChange={e => updateField('location', e.target.value)} list="location-list" />
-                          <datalist id="location-list">{filteredLocations.map(l => <option key={l.id} value={l.name} />)}</datalist>
-                      </FormRow>
-                      {availableEquipment.length > 0 && (
-                          <div className="sm:col-span-2">
-                          <FormRow label="Select Predefined Equipment">
-                              <select
-                                  value={editedInspection.equipmentId || ''}
-                                  onChange={(e) => handleEquipmentSelect(e.target.value)}
-                                  className="w-full p-1.5 sm:p-2 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white text-sm focus:ring-brand-light-blue focus:border-brand-light-blue min-h-[38px]"
-                              >
-                                  <option value="">-- Manual Entry --</option>
-                                  {availableEquipment.map(eq => (
-                                      <option key={eq.id} value={eq.id}>{eq.name}</option>
-                                  ))}
-                              </select>
-                          </FormRow>
-                          </div>
-                      )}
-                      <FormRow label="Component/Equipment Name"><FormInput value={editedInspection.component} onChange={e => updateField('component', e.target.value)} /></FormRow>
-                      <FormRow label="Machine Details (Model, S/N)"><FormInput value={editedInspection.machineDetails} onChange={e => updateField('machineDetails', e.target.value)} /></FormRow>
-                      <FormRow label="Status"><FormInput value={editedInspection.status} onChange={e => updateField('status', e.target.value)} /></FormRow>
-                      <FormRow label="PM Work Order"><FormInput value={editedInspection.pmWorkOrder} onChange={e => updateField('pmWorkOrder', e.target.value)} /></FormRow>
-                      <FormRow label="Item ID"><FormInput value={editedInspection.itemId} onChange={e => updateField('itemId', e.target.value)} /></FormRow>
-                      <FormRow label="Operation Priority"><FormInput value={editedInspection.operationPriority} onChange={e => updateField('operationPriority', e.target.value)} /></FormRow>
-                  </div>
-              </FormSection>
-
-              <div>
-                  <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4">Capture & Identify</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <ImageInputArea id="ir-image" title="Infrared (IR) Image" icon={<IRScannerIcon className="w-12 h-12" />} cardColor="bg-orange-500 hover:bg-orange-600" imageSrc={editedInspection.irImageBase64} imageTimestamp={editedInspection.irImageTimestamp} onTimestampChange={(d) => updateField('irImageTimestamp', d)} onCaptureClick={() => openCamera('IR')} onUploadClick={() => openUpload('IR')} onImageUpdate={handleImageUpdate('IR')} dataTourId="ir-capture-btn" />
-                      <ImageInputArea id="ds-image" title="Digital Still (DS) Image" icon={<DSScannerIcon className="w-12 h-12" />} cardColor="bg-sky-500 hover:bg-sky-600" imageSrc={editedInspection.dsImageBase64} imageTimestamp={editedInspection.dsImageTimestamp} onTimestampChange={(d) => updateField('dsImageTimestamp', d)} onCaptureClick={() => openCamera('DS')} onUploadClick={() => openUpload('DS')} onRemoveClick={() => removeImage('DS')} onImageUpdate={handleImageUpdate('DS')} dataTourId="ds-capture-btn" />
-                      <ImageInputArea id="nameplate-scanner" title="Nameplate Scanner" icon={<NameplateScannerIcon className="w-12 h-12" />} cardColor="bg-purple-500 hover:bg-purple-600" imageSrc={editedInspection.nameplateImageBase64} imageTimestamp={editedInspection.nameplateImageTimestamp} onTimestampChange={(d) => updateField('nameplateImageTimestamp', d)} onCaptureClick={() => openCamera('NAMEPLATE')} onUploadClick={() => openUpload('NAMEPLATE')} onRemoveClick={() => removeImage('NAMEPLATE')} onImageUpdate={handleImageUpdate('NAMEPLATE')} dataTourId="nameplate-scan-btn" />
-                      <ImageInputArea id="meter-scanner" title="Meter Scanner" icon={<MeterScannerIcon className="w-12 h-12" />} cardColor="bg-teal-500 hover:bg-teal-600" imageSrc={editedInspection.meterImageBase64} imageTimestamp={editedInspection.meterImageTimestamp} onTimestampChange={(d) => updateField('meterImageTimestamp', d)} onCaptureClick={() => openCamera('METER')} onUploadClick={() => openUpload('METER')} onRemoveClick={() => removeImage('METER')} onImageUpdate={handleImageUpdate('METER')} dataTourId="meter-scan-btn" />
-                  </div>
-              </div>
-              
-              <FormSection title="Operational Data" dataTourId="trending-data-inputs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 sm:gap-y-4">
-                  <FormRow label="Ambient Temp. (°C)"><FormInput type="number" value={editedInspection.ambientTemp} onChange={e => updateField('ambientTemp', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="Nominal Max Current (A)"><FormInput type="number" value={editedInspection.nominalMaxCurrent} onChange={e => updateField('nominalMaxCurrent', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="Measured Current (A)"><FormInput type="number" value={editedInspection.measuredCurrent} onChange={e => updateField('measuredCurrent', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="Reference Temp. (°C)"><FormInput type="number" value={editedInspection.referenceTemp} onChange={e => updateField('referenceTemp', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="Voltage (V)"><FormInput type="number" value={editedInspection.voltage} onChange={e => updateField('voltage', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="L1 Load (A)"><FormInput type="number" value={editedInspection.l1Load} onChange={e => updateField('l1Load', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="L2 Load (A)"><FormInput type="number" value={editedInspection.l2Load} onChange={e => updateField('l2Load', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="L3 Load (A)"><FormInput type="number" value={editedInspection.l3Load} onChange={e => updateField('l3Load', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="Neutral Load (A)"><FormInput type="number" value={editedInspection.neutralLoad} onChange={e => updateField('neutralLoad', parseFloat(e.target.value))} /></FormRow>
-                  <FormRow label="Ultrasonic Reading"><FormInput value={editedInspection.ultrasonicReading} onChange={e => updateField('ultrasonicReading', e.target.value)} /></FormRow>
+             <div className="flex flex-col h-full">
+                <div className="shrink-0 flex items-center mb-2">
+                    <button onClick={() => setActiveInspection(null)} className="lg:hidden flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold rounded-lg shadow hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                        <BackIcon className="w-4 h-4" />
+                        List
+                    </button>
+                    <p className="lg:hidden font-semibold text-slate-600 dark:text-slate-300 text-sm ml-3 truncate">
+                        {editedInspection.clientName || 'New Inspection'}
+                    </p>
                 </div>
-              </FormSection>
-              
-              <FormSection title="Notes">
-                <FormRow label="Technician Notes">
-                  <FormInput type="textarea" value={editedInspection.technicianNotes} onChange={e => updateField('technicianNotes', e.target.value)} rows={4} />
-                </FormRow>
-              </FormSection>
-
-              <div className="text-center my-8">
-                <button onClick={handleAnalysisClick} disabled={!editedInspection.irImageBase64 || isLoadingAnalysis || editedInspection.inspectionStatus === 'pending-analysis'} className="bg-brand-orange hover:bg-amber-600 text-white font-bold py-3 px-8 text-base sm:text-lg sm:py-4 sm:px-10 rounded-lg shadow-lg transition-transform transform hover:scale-105 disabled:bg-slate-400 disabled:cursor-not-allowed disabled:scale-100 flex items-center justify-center mx-auto" data-tour-id="analyze-btn">
-                    {isLoadingAnalysis ? <LoadingSpinner text="Analyzing..." size="sm" /> : 
-                    editedInspection.inspectionStatus === 'pending-analysis' ? 'Analysis Queued' :
-                    'Run AI Analysis'}
-                </button>
-                {analysisApiError && <p className="text-red-600 bg-red-100 dark:bg-red-900/50 dark:text-red-300 p-2 rounded-md text-sm text-center mt-4" role="alert">{analysisApiError}</p>}
-              </div>
-
-              <div>
-                <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4">Nameplate & Meter Data</h2>
-                <div className="space-y-6">
-                  <EditableDataTable title="Nameplate Data" data={editedInspection.nameplateData} onDataChange={(newData) => updateField('nameplateData', newData)} imagePresent={!!editedInspection.nameplateImageBase64} placeholderRows={NAMEPLATE_PLACEHOLDERS} isLoading={isScannerLoading.nameplate} error={scannerError.nameplate} />
-                  <EditableDataTable title="Meter Data" data={editedInspection.meterData} onDataChange={(newData) => updateField('meterData', newData)} imagePresent={!!editedInspection.meterImageBase64} placeholderRows={METER_PLACEHOLDERS} isLoading={isScannerLoading.meter} error={scannerError.meter} />
+                
+                {/* DESKTOP: Tab Navigation */}
+                <div className="hidden lg:flex shrink-0 items-center justify-between border-b border-slate-200 dark:border-gray-700 mb-4">
+                    <div className="flex items-center space-x-2 sm:space-x-4" role="tablist" aria-label="Inspection Editor Tabs">
+                        <TabButton label="Capture" icon={<CaptureIcon />} isActive={activeTab === 'capture'} onClick={() => setActiveTab('capture')} />
+                        <TabButton label="Details" icon={<DetailsTabIcon />} isActive={activeTab === 'details'} onClick={() => setActiveTab('details')} />
+                        <TabButton label="AI Analysis" icon={<AnalysisTabIcon />} isActive={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
+                    </div>
+                    <div className="flex items-center space-x-2 pr-2">
+                        <AutoSaveIndicator status={autoSaveStatus} />
+                        <button onClick={handleManualSave} disabled={isSaving} className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-1.5 px-3 rounded-lg shadow text-sm disabled:opacity-50">{isSaving ? 'Saving...' : 'Save'}</button>
+                    </div>
                 </div>
-              </div>
-              
-              <div>
-                <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4">AI Analysis Results</h2>
-                  {isLoadingAnalysis ? (
-                    <div className="flex items-center justify-center h-64"><LoadingSpinner text="Analyzing..."/></div>
-                  ) : editedInspection.analysisOutput || editedInspection.rawAnalysisText ? (
-                      <div className="space-y-6">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <FormSection title="Problem Details (AI Populated)">
-                                <div className="space-y-3">
-                                  <FormRow label="Fault Item/Description"><FormDisplay value={editedInspection.faultItemDescription} /></FormRow>
-                                  <FormRow label="Item"><FormDisplay value={editedInspection.problemItem} /></FormRow>
-                                  <FormRow label="Type"><FormDisplay value={editedInspection.problemType} /></FormRow>
-                                  <FormRow label="Manufacturer"><FormDisplay value={editedInspection.problemManufacturer} /></FormRow>
-                                  <FormRow label="Anomaly"><FormDisplay value={editedInspection.problemAnomaly} /></FormRow>
-                                  <FormRow label="Root Cause"><FormDisplay value={editedInspection.problemRootCause} /></FormRow>
-                                  <FormRow label="Remedial"><FormDisplay value={editedInspection.problemRemedial} /></FormRow>
-                                </div>
-                              </FormSection>
-                              
-                              <FormSection title="AI Analysis Data">
-                                  {renderAIDataTable(editedInspection.analysisOutput?.derivedData)}
-                              </FormSection>
 
-                              <div className="md:col-span-2">
-                                  <FormSection title="AI Analysis Findings">
-                                      {renderEditableFindingsTable(editedInspection.analysisOutput?.findings)}
-                                  </FormSection>
-                              </div>
-                          </div>
-                      
-                       {editedInspection.rawAnalysisText && (
-                          <details className="text-xs mt-4">
-                              <summary className="text-slate-500 dark:text-gray-400 cursor-pointer hover:text-slate-700 dark:hover:text-gray-200">View Full Raw AI Output</summary>
-                              <pre className="mt-1 bg-slate-100 dark:bg-black/50 p-2 rounded-md whitespace-pre-wrap break-words text-left">{editedInspection.rawAnalysisText}</pre>
-                          </details>
-                      )}
-                      </div>
-                  ) : (
-                      <p className="text-slate-500 dark:text-gray-400 mt-6 text-center py-8 bg-slate-50 dark:bg-slate-800/30 rounded-lg">No analysis has been run for this record yet.</p>
-                  )}
-              </div>
+                {/* DESKTOP: Tab Panels */}
+                <div className="hidden lg:block flex-grow overflow-y-auto space-y-6 p-1">
+                    <div role="tabpanel" hidden={activeTab !== 'capture'}>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 p-2">
+                            {imageTypes.map(imgType => (
+                                <ImageInputArea
+                                    key={imgType.type}
+                                    type={imgType.type}
+                                    title={imgType.title}
+                                    icon={imgType.icon}
+                                    imageSrc={imageSrcMap ? imageSrcMap[imgType.type] : null}
+                                    onCameraClick={openCamera}
+                                    onUploadClick={openUpload}
+                                    onViewClick={openImageViewer}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                    <div role="tabpanel" hidden={activeTab !== 'details'} className="space-y-6">{detailsContent}</div>
+                    <div role="tabpanel" hidden={activeTab !== 'analysis'} className="space-y-6">{analysisContent}</div>
+                </div>
 
-              <div className="mt-8 pt-6 border-t border-slate-300 dark:border-gray-600 text-right">
-                <button
-                    onClick={resetForm}
-                    className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors text-sm disabled:opacity-50"
-                >
-                    Reset Form
-                </button>
-                <p className="text-xs text-slate-500 dark:text-gray-400 mt-2">This will discard all unsaved changes and reload the last saved version of this record.</p>
-              </div>
+                {/* MOBILE: Single Screen Layout */}
+                <div className="lg:hidden flex-grow overflow-y-auto space-y-3 p-1">
+                    <FormSection title="Core Details">
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-0 text-sm">
+                            <FormRow label="Client" error={errors.clientName}>
+                                <FormInput value={editedInspection.clientName} onChange={e => updateField('clientName', e.target.value)} list="client-list" />
+                                <datalist id="client-list">{allClients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+                            </FormRow>
+                             <FormRow label="Location" error={errors.location}>
+                                <FormInput value={editedInspection.location} onChange={e => updateField('location', e.target.value)} list="location-list" />
+                                <datalist id="location-list">{filteredLocations.map(l => <option key={l.id} value={l.name} />)}</datalist>
+                            </FormRow>
+                             <div className="col-span-2">
+                                <FormRow label="Equipment" error={errors.component}>
+                                    <FormInput value={editedInspection.component} onChange={e => updateField('component', e.target.value)} />
+                                </FormRow>
+                             </div>
+                        </div>
+                    </FormSection>
+
+                    <FormSection title="Images">
+                        <div className="grid grid-cols-2 gap-3">
+                           {imageTypes.map(imgType => (
+                                <ImageInputArea
+                                    key={imgType.type}
+                                    type={imgType.type}
+                                    title={imgType.title}
+                                    icon={imgType.icon}
+                                    imageSrc={imageSrcMap ? imageSrcMap[imgType.type] : null}
+                                    onCameraClick={openCamera}
+                                    onUploadClick={openUpload}
+                                    onViewClick={openImageViewer}
+                                    isMobile
+                                />
+                            ))}
+                        </div>
+                    </FormSection>
+
+                    <div className="p-2 space-y-3">
+                        <button onClick={() => setDetailsModalOpen(true)} className="w-full text-center p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700">
+                            More Details & Notes...
+                        </button>
+                        
+                        {editedInspection.analysisOutput && (
+                             <button onClick={() => setAnalysisModalOpen(true)} className="w-full text-center p-3 bg-sky-100 dark:bg-sky-900/50 border border-sky-300 dark:border-sky-700 rounded-lg shadow-sm font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-800/50">
+                                View Analysis Results
+                            </button>
+                        )}
+                         {analysisApiError && (
+                             analysisApiError === 'offline_queued' ? (
+                                 <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 p-2 rounded-lg text-xs text-center font-medium" role="alert">
+                                     ⏳ Offline: Report queued for sync
+                                 </div>
+                             ) : (
+                                 <p className="text-red-600 bg-red-100 dark:bg-red-900/50 dark:text-red-300 p-2 rounded-md text-xs text-center" role="alert">{analysisApiError}</p>
+                             )
+                         )}
+                    </div>
+
+                    <div className="h-20" /> {/* Spacer for sticky footer */}
+                </div>
+                
+                 {/* MOBILE: Sticky Footer */}
+                <div className="lg:hidden sticky bottom-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border-t border-slate-200 dark:border-slate-700 p-2 flex items-center justify-between gap-2 shadow- ऊपर">
+                    <AutoSaveIndicator status={autoSaveStatus} />
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleManualSave} disabled={isSaving} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg shadow text-sm disabled:opacity-50">{isSaving ? 'Saving...' : 'Save'}</button>
+                        <button onClick={handleAnalysisClick} disabled={!editedInspection.irImageBase64 || isLoadingAnalysis || editedInspection.inspectionStatus === 'pending-analysis'} className="px-4 py-2 bg-brand-orange hover:bg-amber-600 text-white font-semibold rounded-lg shadow text-sm disabled:bg-slate-400 disabled:cursor-not-allowed">
+                            {isLoadingAnalysis ? <LoadingSpinner size="sm" /> : 'Analyze'}
+                        </button>
+                    </div>
+                </div>
+
+                {/* MODALS for mobile view */}
+                {detailsModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                        <div ref={detailsModalRef} className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[90vh] max-h-[90vh] rounded-xl shadow-2xl flex flex-col">
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                                <button onClick={closeDetailsModal} className="flex items-center gap-1.5 px-3 py-1.5 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs sm:text-sm font-semibold transition-colors">
+                                    <BackIcon className="w-4 h-4" />
+                                    Back
+                                </button>
+                                <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white">Details & Notes</h3>
+                                <button onClick={closeDetailsModal} className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white" aria-label="Close details modal"><CloseIcon /></button>
+                            </div>
+                            <div className="flex-grow overflow-y-auto p-4 space-y-6">
+                              {detailsContent}
+                            </div>
+                            <div className="p-4 border-t border-slate-200 dark:border-slate-700 shrink-0 flex justify-end bg-slate-50 dark:bg-slate-900/50 rounded-b-xl">
+                                <button onClick={closeDetailsModal} className="w-full px-5 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-gray-200 font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors shadow-sm">
+                                    ← Back to Inspection
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                 {analysisModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                        <div ref={analysisModalRef} className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[90vh] max-h-[90vh] rounded-xl shadow-2xl flex flex-col">
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                                <button onClick={closeAnalysisModal} className="flex items-center gap-1.5 px-3 py-1.5 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs sm:text-sm font-semibold transition-colors">
+                                    <BackIcon className="w-4 h-4" />
+                                    Back
+                                </button>
+                                <h3 className="text-base sm:text-xl font-bold text-slate-800 dark:text-white">AI Analysis Results</h3>
+                                <button onClick={closeAnalysisModal} className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white" aria-label="Close analysis modal"><CloseIcon /></button>
+                            </div>
+                            <div className="flex-grow overflow-y-auto p-4 space-y-6">
+                               {analysisContent}
+                            </div>
+                            <div className="p-4 border-t border-slate-200 dark:border-slate-700 shrink-0 flex justify-end bg-slate-50 dark:bg-slate-900/50 rounded-b-xl">
+                                <button onClick={closeAnalysisModal} className="w-full px-5 py-3 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-gray-200 font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors shadow-sm">
+                                    ← Back to Inspection
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                 )}
+
             </div>
         )}
         </div>

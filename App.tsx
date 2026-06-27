@@ -23,6 +23,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import ThemeToggle from './components/ThemeToggle';
 import { LogoIcon, OnlineStatusIcon, OfflineStatusIcon, SignOutIcon } from './components/Icons';
 import { AdminProvider } from './hooks/useAdmin';
+import { syncOfflineReports } from './services/syncService';
 
 const HeaderLogo: React.FC = () => (
     <div className="flex items-center text-white gap-2 sm:gap-3">
@@ -35,6 +36,24 @@ const HeaderLogo: React.FC = () => (
 const App: React.FC = () => {
   const { currentUser, initialAuthCompleted, signOut } = useAuth();
   const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+  const [isSyncing, setIsSyncing] = React.useState(false);
+  const [syncStatus, setSyncStatus] = React.useState<{ successCount: number; failCount: number } | null>(null);
+
+  const triggerAutoSync = React.useCallback(async () => {
+    if (!navigator.onLine) return;
+    setIsSyncing(true);
+    try {
+      const result = await syncOfflineReports();
+      if (result.successCount > 0 || result.failCount > 0) {
+        setSyncStatus(result);
+        setTimeout(() => setSyncStatus(null), 5000);
+      }
+    } catch (err) {
+      console.error("Auto sync failed", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
 
   React.useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -51,6 +70,16 @@ const App: React.FC = () => {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (isOnline) {
+      triggerAutoSync();
+    }
+  }, [isOnline, triggerAutoSync]);
+
+  React.useEffect(() => {
+    triggerAutoSync();
+  }, [triggerAutoSync]);
 
   if (!initialAuthCompleted) {
     return (
@@ -107,6 +136,18 @@ const App: React.FC = () => {
           </nav>
         </header>
         <main className="flex-grow pt-0 sm:pt-4 bg-slate-100 dark:bg-gray-950">
+          {isSyncing && (
+            <div className="bg-sky-600 dark:bg-sky-900 text-white px-4 py-2 text-center text-xs sm:text-sm font-semibold animate-pulse flex items-center justify-center gap-2 shadow-inner">
+              <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              Syncing queued offline inspection reports...
+            </div>
+          )}
+          {syncStatus && (syncStatus.successCount > 0 || syncStatus.failCount > 0) && (
+            <div className="bg-emerald-600 dark:bg-emerald-800 text-white px-4 py-2.5 text-center text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 shadow-md transition-all duration-300">
+              <span className="text-sm font-bold">✓</span>
+              Offline sync complete! {syncStatus.successCount} report{syncStatus.successCount === 1 ? '' : 's'} synced successfully.{syncStatus.failCount > 0 ? ` ${syncStatus.failCount} failed.` : ''}
+            </div>
+          )}
           <Routes>
             <Route path="/signin" element={!currentUser ? <SignInPage /> : <Navigate to={commonRedirectPath()} />} />
             <Route path="/signup" element={!currentUser ? <SignUpPage /> : <Navigate to={commonRedirectPath()} />} />

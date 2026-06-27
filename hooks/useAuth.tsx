@@ -1,6 +1,12 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, UserRole, AuthContextType, UserStatus, LoginRecord } from '../types';
+import { auth, db } from '../src/firebase';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut
+} from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // --- START: Security Enhancements ---
 // Helper to convert ArrayBuffer to a Hex string for storage
@@ -13,7 +19,6 @@ const arrayBufferToHex = (buffer: ArrayBuffer): string => {
 // Hashes a password with a given salt using the Web Crypto API
 const hashPassword = async (password: string, salt: string): Promise<string> => {
   const encoder = new TextEncoder();
-  // Simple but effective: concatenate password and salt before hashing.
   const data = encoder.encode(password + salt);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return arrayBufferToHex(hashBuffer);
@@ -91,8 +96,6 @@ const initializeMockUsers = async () => {
     localStorage.setItem(MOCK_USERS_DB_KEY, JSON.stringify(users));
   } catch (error) {
     console.error("Error initializing mock users:", error);
-    // If initialization fails, we can't proceed securely.
-    localStorage.removeItem(MOCK_USERS_DB_KEY);
   }
 };
 
@@ -108,12 +111,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             const storedUser = localStorage.getItem('techlens_currentUser');
             if (storedUser) {
-            setCurrentUser(JSON.parse(storedUser));
+              setCurrentUser(JSON.parse(storedUser));
             }
         } catch (error) {
             console.error("Error loading user from localStorage:", error);
             localStorage.removeItem('techlens_currentUser');
         }
+
+        // Sync default profiles to Firestore so they are recognized by database rules
+        if (navigator.onLine) {
+          try {
+            const localUsers = getMockUsers();
+            for (const user of localUsers) {
+              const { password, passwordHash, salt, ...profile } = user;
+              await setDoc(doc(db, 'users', user.id), profile, { merge: true });
+            }
+          } catch (e) {
+            console.warn("Could not sync profiles to Firestore:", e);
+          }
+        }
+
         setInitialAuthCompleted(true);
     };
     initialize();
@@ -131,7 +148,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const saveMockUsers = (users: StoredUser[]): void => {
     try {
-      // Ensure no plaintext passwords are saved. The `password` property is transient.
       const usersToSave = users.map(({ password, ...rest }) => rest);
       localStorage.setItem(MOCK_USERS_DB_KEY, JSON.stringify(usersToSave));
     } catch (error) {
@@ -139,7 +155,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Login records are now managed in useAdmin, but signIn/signOut still need to interact with them.
   const getLoginRecords = (): LoginRecord[] => {
     try {
       const records = localStorage.getItem(MOCK_LOGIN_RECORDS_DB_KEY);
@@ -158,7 +173,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const recordLogin = (user: User) => {
+  const recordLogin = async (user: User) => {
     const records = getLoginRecords();
     const newRecord: LoginRecord = {
       id: crypto.randomUUID(),
@@ -169,71 +184,130 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     records.push(newRecord);
     saveLoginRecords(records);
+
+    if (navigator.onLine) {
+      try {
+        await setDoc(doc(db, 'loginRecords', newRecord.id), {
+          ...newRecord,
+          loginTimestamp: newRecord.loginTimestamp.toISOString(),
+        });
+      } catch (error) {
+        console.warn("Could not write login record to Firestore:", error);
+      }
+    }
   };
 
-  const recordLogout = (userId: string) => {
+  const recordLogout = async (userId: string) => {
     let records = getLoginRecords();
     const userLastLoginIndex = records.slice().reverse().findIndex(r => r.userId === userId && !r.logoutTimestamp);
     if (userLastLoginIndex !== -1) {
       const actualIndex = records.length - 1 - userLastLoginIndex;
-      records[actualIndex].logoutTimestamp = new Date();
+      const finishedRecord = { ...records[actualIndex], logoutTimestamp: new Date() };
+      records[actualIndex] = finishedRecord;
       saveLoginRecords(records);
+
+      if (navigator.onLine) {
+        try {
+          await setDoc(doc(db, 'loginRecords', finishedRecord.id), {
+            ...finishedRecord,
+            loginTimestamp: finishedRecord.loginTimestamp.toISOString(),
+            logoutTimestamp: finishedRecord.logoutTimestamp.toISOString(),
+          }, { merge: true });
+        } catch (error) {
+          console.warn("Could not update logout record on Firestore:", error);
+        }
+      }
     }
   };
 
   const signIn = async (email: string, passwordAttempt: string): Promise<User | null> => {
     setIsActionLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const users = getMockUsers();
-    const existingUser = users.find(u => u.email === email);
+    let userToReturn: User | null = null;
 
-    if (!existingUser) {
-      setIsActionLoading(false);
-      throw new Error(UserNotFoundError);
+    if (navigator.onLine) {
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, passwordAttempt);
+        const uid = userCredential.user.uid;
+        
+        const userDoc = await getDoc(doc(db, 'users', uid));
+        if (userDoc.exists()) {
+          userToReturn = userDoc.data() as User;
+        } else {
+          const users = getMockUsers();
+          const localUser = users.find(u => u.email === email);
+          const name = localUser?.name || `User-${email.split('@')[0]}`;
+          const role = localUser?.role || UserRole.SITE_ENGINEER;
+          const status = localUser?.status || 'approved';
+          
+          userToReturn = {
+            id: uid,
+            email,
+            name,
+            role,
+            status
+          };
+          await setDoc(doc(db, 'users', uid), userToReturn);
+        }
+      } catch (fbError: any) {
+        console.warn("Firebase sign in failed or not configured, falling back to local auth:", fbError);
+      }
     }
 
-    // --- START: Security Enhancement ---
-    if (!existingUser.passwordHash || !existingUser.salt) {
-      // This case should not happen with the new initialization logic, but is a safeguard.
-      console.error(`User ${email} has no stored password hash or salt.`);
-      setIsActionLoading(false);
-      throw new Error("Account is not configured correctly. Please contact an administrator.");
+    if (!userToReturn) {
+      const users = getMockUsers();
+      const existingUser = users.find(u => u.email === email);
+
+      if (!existingUser) {
+        setIsActionLoading(false);
+        throw new Error(UserNotFoundError);
+      }
+
+      if (!existingUser.passwordHash || !existingUser.salt) {
+        setIsActionLoading(false);
+        throw new Error("Account is not configured correctly. Please contact an administrator.");
+      }
+
+      const calculatedHash = await hashPassword(passwordAttempt, existingUser.salt);
+      if (calculatedHash !== existingUser.passwordHash) {
+        setIsActionLoading(false);
+        throw new Error("Invalid password.");
+      }
+
+      const { password, passwordHash, salt, ...rest } = existingUser;
+      userToReturn = rest as User;
     }
-    
-    const attemptHash = await hashPassword(passwordAttempt, existingUser.salt);
 
-    if (existingUser.passwordHash !== attemptHash) {
-      setIsActionLoading(false);
-      return null; // Incorrect password
-    }
-    // --- END: Security Enhancement ---
-
-
-    // Check validity period
-    if (existingUser.validUntil && new Date(existingUser.validUntil) < new Date()) {
+    if (userToReturn.validUntil && new Date(userToReturn.validUntil) < new Date()) {
        setIsActionLoading(false);
        throw new Error("Your account has expired. Please contact an administrator.");
     }
 
-    // Check status for Site Engineers
-    if (existingUser.role === UserRole.SITE_ENGINEER) {
-      if (existingUser.status === 'pending') {
+    if (userToReturn.role === UserRole.SITE_ENGINEER) {
+      if (userToReturn.status === 'pending') {
         setIsActionLoading(false);
         throw new Error(UserPendingApprovalError);
       }
-      if (existingUser.status === 'rejected') {
+      if (userToReturn.status === 'rejected') {
         setIsActionLoading(false);
         throw new Error(UserRejectedError);
       }
     }
-    
-    // Login successful
-    const { password, passwordHash, salt, ...userToReturn } = existingUser;
-    setCurrentUser(userToReturn as User);
+
+    setCurrentUser(userToReturn);
     localStorage.setItem('techlens_currentUser', JSON.stringify(userToReturn));
-    recordLogin(userToReturn as User);
+    await recordLogin(userToReturn);
+    
+    if (navigator.onLine) {
+      try {
+        const { syncFirestoreToLocal } = await import('../src/db');
+        await syncFirestoreToLocal();
+      } catch (syncErr) {
+        console.error("Post-login sync failed:", syncErr);
+      }
+    }
+
     setIsActionLoading(false);
-    return userToReturn as User;
+    return userToReturn;
   };
 
   const signUp = async (email: string, passwordProvided: string, role: UserRole): Promise<User | null> => {
@@ -241,45 +315,78 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw new Error(AdminCannotSignUpError);
     }
     setIsActionLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    let users = getMockUsers();
-    if (users.find(u => u.email === email)) {
-      setIsActionLoading(false);
-      throw new Error("User already exists with this email.");
+    let newUser: StoredUser | null = null;
+
+    if (navigator.onLine) {
+      try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, passwordProvided);
+        const uid = userCredential.user.uid;
+
+        newUser = {
+          id: uid,
+          email,
+          name: `User-${email.split('@')[0]}`,
+          role,
+          status: 'pending',
+        };
+
+        await setDoc(doc(db, 'users', uid), newUser);
+      } catch (fbError: any) {
+        console.warn("Firebase sign up failed, registering locally:", fbError);
+      }
     }
 
-    // --- START: Security Enhancement ---
-    const salt = arrayBufferToHex(crypto.getRandomValues(new Uint8Array(16)));
-    const passwordHash = await hashPassword(passwordProvided, salt);
+    if (!newUser) {
+      let users = getMockUsers();
+      if (users.find(u => u.email === email)) {
+        setIsActionLoading(false);
+        throw new Error("User already exists with this email.");
+      }
 
-    const newUser: StoredUser = {
-      id: crypto.randomUUID(),
-      email,
-      name: `User-${email.split('@')[0]}`,
-      role,
-      status: role === UserRole.SITE_ENGINEER ? 'pending' : 'approved',
-      salt,
-      passwordHash,
-    };
-    // --- END: Security Enhancement ---
+      const salt = arrayBufferToHex(crypto.getRandomValues(new Uint8Array(16)));
+      const passwordHash = await hashPassword(passwordProvided, salt);
 
-    users.push(newUser);
-    saveMockUsers(users);
+      newUser = {
+        id: crypto.randomUUID(),
+        email,
+        name: `User-${email.split('@')[0]}`,
+        role,
+        status: 'pending',
+        salt,
+        passwordHash,
+      };
+
+      users.push(newUser);
+      saveMockUsers(users);
+    } else {
+      let users = getMockUsers();
+      if (!users.find(u => u.email === email)) {
+        const salt = arrayBufferToHex(crypto.getRandomValues(new Uint8Array(16)));
+        const passwordHash = await hashPassword(passwordProvided, salt);
+        users.push({
+          ...newUser,
+          salt,
+          passwordHash
+        });
+        saveMockUsers(users);
+      }
+    }
 
     const { password, passwordHash: storedHash, salt: storedSalt, ...userToReturn } = newUser;
-    // For site engineers, sign up does not mean immediate login due to pending status
-    if (userToReturn.role === UserRole.ADMIN) { // Should not happen with current UI flow but for completeness
-        setCurrentUser(userToReturn as User);
-        localStorage.setItem('techlens_currentUser', JSON.stringify(userToReturn));
-        recordLogin(userToReturn as User);
-    }
     setIsActionLoading(false);
-    return userToReturn as User; // Return user object, but UI will handle pending status message
+    return userToReturn as User;
   };
 
-  const signOut = () => {
+  const signOut = async () => {
     if (currentUser) {
-      recordLogout(currentUser.id);
+      await recordLogout(currentUser.id);
+    }
+    if (navigator.onLine) {
+      try {
+        await firebaseSignOut(auth);
+      } catch (error) {
+        console.error("Firebase sign out failed:", error);
+      }
     }
     setCurrentUser(null);
     localStorage.removeItem('techlens_currentUser');

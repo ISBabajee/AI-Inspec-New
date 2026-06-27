@@ -1,0 +1,165 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role and approval status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "validUntil": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role", "status"]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "Client company details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "contactDetails": { "type": "string" }
+      },
+      "required": ["id", "name", "address", "contactDetails"]
+    },
+    "SiteLocation": {
+      "title": "SiteLocation",
+      "description": "Physical site locations belonging to a client",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" }
+      },
+      "required": ["id", "clientId", "name", "address"]
+    },
+    "Equipment": {
+      "title": "Equipment",
+      "description": "Equipment machines belonging to a client/location",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "locationId": { "type": "string" },
+        "name": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "clientId", "locationId", "name", "details", "createdAt", "updatedAt"]
+    },
+    "InspectionRecord": {
+      "title": "InspectionRecord",
+      "description": "Inspection report record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientName": { "type": "string" },
+        "location": { "type": "string" },
+        "equipmentId": { "type": "string" },
+        "component": { "type": "string" },
+        "machineDetails": { "type": "string" },
+        "status": { "type": "string" },
+        "pmWorkOrder": { "type": "string" },
+        "itemId": { "type": "string" },
+        "operationPriority": { "type": "string" },
+        "faultItemDescription": { "type": "string" },
+        "problemItem": { "type": "string" },
+        "problemType": { "type": "string" },
+        "problemManufacturer": { "type": "string" },
+        "problemAnomaly": { "type": "string" },
+        "problemRootCause": { "type": "string" },
+        "problemRemedial": { "type": "string" },
+        "ambientTemp": { "type": "number" },
+        "nominalMaxCurrent": { "type": "number" },
+        "measuredCurrent": { "type": "number" },
+        "referenceTemp": { "type": "number" },
+        "voltage": { "type": "number" },
+        "l1Load": { "type": "number" },
+        "l2Load": { "type": "number" },
+        "l3Load": { "type": "number" },
+        "neutralLoad": { "type": "number" },
+        "ultrasonicReading": { "type": "string" },
+        "irImageBase64": { "type": "string" },
+        "irImageTimestamp": { "type": "string", "format": "date-time" },
+        "dsImageBase64": { "type": "string" },
+        "dsImageTimestamp": { "type": "string", "format": "date-time" },
+        "nameplateImageBase64": { "type": "string" },
+        "nameplateImageTimestamp": { "type": "string", "format": "date-time" },
+        "meterImageBase64": { "type": "string" },
+        "meterImageTimestamp": { "type": "string", "format": "date-time" },
+        "nameplateData": { "type": "array" },
+        "meterData": { "type": "array" },
+        "inspectionStatus": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "analysisError": { "type": "string" },
+        "userId": { "type": "string" },
+        "jobIdReference": { "type": "string" },
+        "technicianNotes": { "type": "string" },
+        "adminNotes": { "type": "string" },
+        "rawAnalysisText": { "type": "string" },
+        "analysisOutput": { "type": "object" }
+      },
+      "required": ["id", "clientName", "location", "inspectionStatus", "createdAt", "updatedAt"]
+    },
+    "LoginRecord": {
+      "title": "LoginRecord",
+      "description": "Log of user login/logout activity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "role": { "type": "string" },
+        "loginTimestamp": { "type": "string", "format": "date-time" },
+        "logoutTimestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "userEmail", "role", "loginTimestamp"]
+    },
+    "Test": {
+      "title": "Test",
+      "description": "Connection verification test entity",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles with authorization levels"
+    },
+    "clients/{clientId}": {
+      "schema": "Client",
+      "description": "Customer clients"
+    },
+    "siteLocations/{locationId}": {
+      "schema": "SiteLocation",
+      "description": "Customer client site physical locations"
+    },
+    "equipment/{equipmentId}": {
+      "schema": "Equipment",
+      "description": "Customer machines/equipment"
+    },
+    "inspections/{inspectionId}": {
+      "schema": "InspectionRecord",
+      "description": "Inspection report documents with attachments and AI metadata"
+    },
+    "loginRecords/{recordId}": {
+      "schema": "LoginRecord",
+      "description": "Audit trails for sign-in/sign-out times"
+    },
+    "test/{testId}": {
+      "schema": "Test",
+      "description": "Connection check test document"
+    }
+  }
+}

@@ -3,7 +3,7 @@ import { InspectionRecord, InspectionStatus } from '../../types';
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../LoadingSpinner';
-import { createNewInspection, saveInspectionRecord } from '../../src/db';
+import { createNewInspection, saveInspectionRecord, getSyncQueueByUserId, SyncQueueItem } from '../../src/db';
 import { ClientIcon, LocationIcon, EquipmentIcon } from '../Icons';
 
 type ActiveView = 'overview' | 'records' | 'reports' | 'customers';
@@ -48,6 +48,27 @@ const SiteEngineerOverviewView: React.FC<SiteEngineerOverviewViewProps> = ({ cur
   const [equipmentName, setEquipmentName] = useState('');
   const [equipmentDetails, setEquipmentDetails] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
+
+  const loadSyncQueue = useCallback(async () => {
+    if (authUser?.id) {
+      const items = await getSyncQueueByUserId(authUser.id);
+      setSyncQueue(items);
+    }
+  }, [authUser?.id]);
+
+  React.useEffect(() => {
+    loadSyncQueue();
+    const interval = setInterval(loadSyncQueue, 3000);
+    window.addEventListener('online', loadSyncQueue);
+    window.addEventListener('offline', loadSyncQueue);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online', loadSyncQueue);
+      window.removeEventListener('offline', loadSyncQueue);
+    };
+  }, [loadSyncQueue]);
 
   const selectedClient = useMemo(() => allClients.find(c => c.name.toLowerCase() === clientName.toLowerCase()), [clientName, allClients]);
   
@@ -152,6 +173,33 @@ const SiteEngineerOverviewView: React.FC<SiteEngineerOverviewViewProps> = ({ cur
             </div>
 
             <div className="space-y-6">
+                {syncQueue.length > 0 && (
+                  <div className="p-4 sm:p-6 bg-amber-50 dark:bg-amber-950/20 rounded-lg shadow-lg border border-amber-200 dark:border-amber-900/50">
+                      <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-bold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                              <span>⏳</span> Offline Sync Queue
+                          </h3>
+                          <span className="px-2 py-1 bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 rounded text-xs font-semibold">
+                              {syncQueue.length} Pending
+                          </span>
+                      </div>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">
+                          These reports will automatically upload and run AI analysis once your connection is restored:
+                      </p>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {syncQueue.map(item => (
+                              <div key={item.id} className="p-2.5 bg-white dark:bg-gray-800 rounded border border-amber-100 dark:border-amber-950/50 text-xs flex justify-between items-center shadow-sm">
+                                  <div>
+                                      <p className="font-bold text-slate-800 dark:text-slate-100">{item.clientName}</p>
+                                      <p className="text-slate-500 dark:text-slate-400 text-[10px]">{item.location} • {item.component}</p>
+                                  </div>
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 italic">Waiting</span>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+                )}
+
                 <div className="p-4 sm:p-6 bg-white dark:bg-slate-800/50 rounded-lg shadow-lg">
                     <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">Quick Actions</h3>
                     <div className="flex flex-col space-y-3">
