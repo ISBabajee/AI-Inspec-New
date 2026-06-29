@@ -3,7 +3,9 @@ import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../LoadingSpinner';
 import { createNewInspection, saveInspectionRecord, addClient, addSiteLocation, addEquipment } from '../../src/db';
-import { ClientIcon, LocationIcon, EquipmentIcon } from '../Icons';
+import { ClientIcon, LocationIcon, EquipmentIcon, UploadIcon } from '../Icons';
+import { PDFUploadModal } from './PDFUploadModal';
+import { InspectionRecord } from '../../types';
 
 interface SiteEngineerNewInspectionViewProps {
   onBack: () => void;
@@ -46,6 +48,7 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
   const [equipmentName, setEquipmentName] = useState('');
   const [equipmentDetails, setEquipmentDetails] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isPDFUploadOpen, setIsPDFUploadOpen] = useState(false);
 
   // When clientSelection changes, update clientName and reset location
   useEffect(() => {
@@ -117,6 +120,31 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
     }
   };
 
+  const getOrCreateClientAndLocation = async () => {
+    if (!currentUser) throw new Error("User not authenticated");
+        
+    let finalClientId = selectedClient?.id;
+    if (!finalClientId && clientName.trim()) {
+         const newClient = await addClient({
+             name: clientName.trim(),
+             address: '',
+             contactDetails: ''
+         });
+         finalClientId = newClient.id;
+    }
+
+    let finalLocationId = selectedLocation?.id;
+    if (!finalLocationId && locationName.trim() && finalClientId) {
+         const newLoc = await addSiteLocation({
+             clientId: finalClientId,
+             name: locationName.trim(),
+             address: ''
+         });
+         finalLocationId = newLoc.id;
+    }
+    return { finalClientId, finalLocationId };
+  };
+
   const handleStartInspection = useCallback(async () => {
     if (!clientName.trim()) {
         alert("Client Name is required to start an inspection.");
@@ -126,25 +154,7 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
     try {
         if (!currentUser) throw new Error("User not authenticated");
         
-        let finalClientId = selectedClient?.id;
-        if (!finalClientId && clientName.trim()) {
-             const newClient = await addClient({
-                 name: clientName.trim(),
-                 address: '',
-                 contactDetails: ''
-             });
-             finalClientId = newClient.id;
-        }
-
-        let finalLocationId = selectedLocation?.id;
-        if (!finalLocationId && locationName.trim() && finalClientId) {
-             const newLoc = await addSiteLocation({
-                 clientId: finalClientId,
-                 name: locationName.trim(),
-                 address: ''
-             });
-             finalLocationId = newLoc.id;
-        }
+        const { finalClientId, finalLocationId } = await getOrCreateClientAndLocation();
 
         let finalEqId = availableEquipment.find(e => e.name === equipmentName.trim())?.id;
         if (!finalEqId && equipmentName.trim() && finalLocationId && finalClientId) {
@@ -173,6 +183,48 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
         setIsCreating(false);
     }
   }, [clientName, locationName, equipmentName, equipmentDetails, currentUser, refreshData, setCurrentInspectionById, selectedClient, selectedLocation, availableEquipment]);
+
+  const handlePDFUploadComplete = async (extractedRecords: Partial<InspectionRecord>[]) => {
+    setIsCreating(true);
+    try {
+      if (!currentUser) throw new Error("User not authenticated");
+      const { finalClientId, finalLocationId } = await getOrCreateClientAndLocation();
+
+      let lastId = null;
+      for (const rec of extractedRecords) {
+        const newRecord = createNewInspection(currentUser.id);
+        newRecord.clientName = clientName.trim();
+        newRecord.location = locationName.trim();
+        
+        if (rec.component && finalLocationId && finalClientId) {
+            // Check if equipment already exists
+            let eq = availableEquipment.find(e => e.name === rec.component);
+            if (!eq) {
+               await addEquipment({
+                   clientId: finalClientId,
+                   locationId: finalLocationId,
+                   name: rec.component,
+                   details: rec.technicianNotes || ''
+               });
+            }
+        }
+        
+        Object.assign(newRecord, rec);
+        await saveInspectionRecord(newRecord);
+        lastId = newRecord.id;
+      }
+      
+      await refreshData();
+      if (lastId) {
+        setCurrentInspectionById(lastId); // Open the last one, or you can route to 'records' view
+      }
+    } catch (e) {
+      console.error("Failed to batch create inspections:", e);
+      alert("An error occurred while saving the extracted records.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   if (loading) {
     return <div className="flex items-center justify-center h-full"><LoadingSpinner text="Loading data..." /></div>;
@@ -264,10 +316,22 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
             </div>
         </WorkflowCard>
         
-        <button onClick={handleStartInspection} disabled={!clientName.trim() || isCreating} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition duration-150 ease-in-out text-lg disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center">
-            {isCreating ? <LoadingSpinner size="sm" /> : "Create Inspection & Proceed"}
-        </button>
+        <div className="flex flex-col gap-4">
+          <button onClick={handleStartInspection} disabled={!clientName.trim() || isCreating} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition duration-150 ease-in-out text-lg disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center">
+              {isCreating ? <LoadingSpinner size="sm" /> : "Create Inspection & Proceed"}
+          </button>
+          
+          <button onClick={() => setIsPDFUploadOpen(true)} disabled={!clientName.trim() || !locationName.trim() || isCreating} className="w-full bg-brand-light-blue hover:bg-sky-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition duration-150 ease-in-out text-lg disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              <UploadIcon />
+              <span>Batch Upload OEM PDF Report</span>
+          </button>
+        </div>
       </div>
+      <PDFUploadModal 
+        isOpen={isPDFUploadOpen} 
+        onClose={() => setIsPDFUploadOpen(false)} 
+        onUploadComplete={handlePDFUploadComplete} 
+      />
     </div>
   );
 };

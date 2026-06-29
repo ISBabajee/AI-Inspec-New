@@ -250,6 +250,77 @@ Guidelines:
     }
   });
 
+  app.post("/api/gemini/analyze-oem-report", async (req, res) => {
+    try {
+      const { imageBase64 } = req.body;
+      if (!imageBase64) {
+        return res.status(400).json({ error: "Missing imageBase64 data" });
+      }
+
+      const { ai } = getAiClient(req);
+
+      const imagePart = {
+        inlineData: { mimeType: 'image/jpeg', data: imageBase64 },
+      };
+
+      const promptText = `You are an expert analyzing FLIR thermal inspection PDF report pages. Your task is to extract data and bounding boxes from the provided report page image.
+      
+Your response MUST conform strictly to the JSON schema.
+For bounding boxes, use the format [ymin, xmin, ymax, xmax] where values are integers between 0 and 1000 representing normalized coordinates (e.g. [100, 100, 500, 500]).
+- Find the bounding box for the main Infrared (IR) Image (which usually includes the thermo scale on the left).
+- Find the bounding box for the Digital Still (DS) Image (usually on the right).
+- Extract the Image Number / File Name (e.g., FLIR3171.jpg).
+- Extract the Atmospheric/Ambient temperature (e.g., 25.0).
+- Extract the measurements (e.g., Li1 Max, Li1 Avg).`;
+
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          irImageBbox: {
+            type: Type.ARRAY,
+            description: "Bounding box of the IR Image [ymin, xmin, ymax, xmax] (0-1000)",
+            items: { type: Type.INTEGER }
+          },
+          dsImageBbox: {
+            type: Type.ARRAY,
+            description: "Bounding box of the Digital Still Image [ymin, xmin, ymax, xmax] (0-1000)",
+            items: { type: Type.INTEGER }
+          },
+          imageNumber: { type: Type.STRING, description: "The file name or image number (e.g. FLIR3171.jpg)" },
+          ambientTemp: { type: Type.NUMBER, description: "Atmospheric or Ambient temperature in Celsius" },
+          measurements: {
+            type: Type.ARRAY,
+            description: "All extracted measurements",
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                parameter: { type: Type.STRING },
+                value: { type: Type.STRING }
+              }
+            }
+          }
+        },
+        required: ['irImageBbox', 'dsImageBbox']
+      };
+
+      const response = await generateContentWithRetry(ai, {
+        contents: { parts: [{ text: promptText }, imagePart] },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+          temperature: 0.1,
+        }
+      });
+      
+      const rawTextOutput = response.text;
+      const jsonData = JSON.parse(rawTextOutput);
+      res.json(jsonData);
+    } catch (error: any) {
+      console.error("Server Error in analyze-oem-report:", error);
+      res.status(500).json({ error: error?.message || "An unknown error occurred." });
+    }
+  });
+
   app.post("/api/gemini/analyze-images", async (req, res) => {
     try {
       const { inspection } = req.body;
