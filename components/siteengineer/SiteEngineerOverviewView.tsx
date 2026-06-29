@@ -133,7 +133,7 @@ const SiteEngineerOverviewView: React.FC<SiteEngineerOverviewViewProps> = ({ cur
                     <label htmlFor="client-select" className="block text-sm font-medium text-slate-700 dark:text-gray-300">Choose an existing client or type a new one:</label>
                     <input id="client-select" list="client-list" value={clientName} onChange={e => setClientName(e.target.value)} placeholder="e.g., Acme Corp" className="w-full p-2 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white" />
                     <datalist id="client-list">
-                        {allClients.map(c => <option key={c.id} value={c.name} />)}
+                        {uniqueClientNames.map(name => <option key={name} value={name} />)}
                     </datalist>
                 </WorkflowCard>
 

@@ -13,20 +13,28 @@ const ClientReportsPage: React.FC = () => {
   const { allInspections, uniqueClientNames, loading: loadingData, error: dataError } = useData();
   
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedInspectionForModal, setSelectedInspectionForModal] = useState<InspectionRecord | null>(null);
   
+  const clientLocations = useMemo(() => {
+      if (!selectedClient) return [];
+      const locations = new Set<string>();
+      allInspections.filter(insp => insp.clientName === selectedClient && insp.location).forEach(insp => locations.add(insp.location!));
+      return Array.from(locations).sort((a,b) => a.localeCompare(b));
+  }, [selectedClient, allInspections]);
+
   const clientInspections = useMemo(() => {
       if (!selectedClient) return [];
       return allInspections
-        .filter(insp => insp.clientName === selectedClient)
+        .filter(insp => insp.clientName === selectedClient && (!selectedLocation || insp.location === selectedLocation))
         .sort((a,b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  }, [selectedClient, allInspections]);
-
+  }, [selectedClient, selectedLocation, allInspections]);
 
   const handleClientChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedClient(event.target.value || null);
+    setSelectedLocation(null);
   };
 
   const openInspectionModal = (inspection: InspectionRecord) => {
@@ -110,24 +118,43 @@ const ClientReportsPage: React.FC = () => {
 
       {dataError && <p className="mb-4 text-center text-red-600 bg-red-100 dark:bg-red-900/50 dark:text-red-300 p-3 rounded-md" role="alert">{dataError}</p>}
 
-      <div className="mb-6 p-6 bg-white dark:bg-gray-950 rounded-lg shadow-xl">
-        <label htmlFor="client-select" className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Select Client:</label>
-        {loadingData ? (
-          <LoadingSpinner text="Loading clients..." />
-        ) : uniqueClientNames.length > 0 ? (
-          <select
-            id="client-select"
-            value={selectedClient || ''}
-            onChange={handleClientChange}
-            className="mt-1 block w-full md:w-1/2 px-3 py-2 border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-900 dark:text-white rounded-md shadow-sm focus:outline-none focus:ring-brand-light-blue focus:border-brand-light-blue sm:text-sm"
-          >
-            <option value="">-- Select a Client --</option>
-            {uniqueClientNames.map(client => (
-              <option key={client} value={client}>{client}</option>
-            ))}
-          </select>
-        ) : (
-          <p className="text-slate-500 dark:text-gray-400 mt-2">No clients found. Start by creating some inspections.</p>
+      <div className="mb-6 p-6 bg-white dark:bg-gray-950 rounded-lg shadow-xl flex flex-col md:flex-row gap-4">
+        <div className="flex-1">
+          <label htmlFor="client-select" className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Select Client:</label>
+          {loadingData ? (
+            <LoadingSpinner text="Loading clients..." />
+          ) : uniqueClientNames.length > 0 ? (
+            <select
+              id="client-select"
+              value={selectedClient || ''}
+              onChange={handleClientChange}
+              className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-900 dark:text-white rounded-md shadow-sm focus:outline-none focus:ring-brand-light-blue focus:border-brand-light-blue sm:text-sm"
+            >
+              <option value="">-- Select a Client --</option>
+              {uniqueClientNames.map(client => (
+                <option key={client} value={client}>{client}</option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-slate-500 dark:text-gray-400 mt-2">No clients found. Start by creating some inspections.</p>
+          )}
+        </div>
+        
+        {selectedClient && (
+          <div className="flex-1">
+            <label htmlFor="location-select" className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-1">Select Location (Optional):</label>
+            <select
+              id="location-select"
+              value={selectedLocation || ''}
+              onChange={(e) => setSelectedLocation(e.target.value || null)}
+              className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-900 dark:text-white rounded-md shadow-sm focus:outline-none focus:ring-brand-light-blue focus:border-brand-light-blue sm:text-sm"
+            >
+              <option value="">All Locations</option>
+              {clientLocations.map(loc => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
 
@@ -142,6 +169,7 @@ const ClientReportsPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 pb-2 border-b border-slate-300 dark:border-gray-700">
             <h3 className="text-2xl font-semibold text-brand-dark dark:text-brand-light-blue">
               Summary for: <span className="text-slate-800 dark:text-sky-300">{selectedClient}</span>
+              {selectedLocation && <span className="text-slate-600 dark:text-sky-400 text-xl ml-2">({selectedLocation})</span>}
             </h3>
             <button
               onClick={handleGenerateCompleteReport}

@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
 import { InspectionRecord, ParsedAnalysisFinding, NameplateData } from '../types';
 import ReportLocationSection from '../components/ReportLocationSection';
+import EntechReportTemplate from '../components/EntechReportTemplate';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const COMPANY_NAME = "NAFA Entech Solutionz"; // For watermark and header/footer
@@ -203,6 +204,7 @@ const CompleteReportPage: React.FC = () => {
   const [inspections, setInspections] = useState<InspectionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [template, setTemplate] = useState<'standard' | 'entech'>('standard');
   const reportContainerRef = useRef<HTMLDivElement>(null);
   const reportGeneratedDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -339,11 +341,12 @@ const CompleteReportPage: React.FC = () => {
         <meta charset='utf-8'>
         <title>Inspection Report - ${clientName || 'Client'}</title>
         <style>
-          body { font-family: Arial, sans-serif; font-size: 10pt; margin: 1in; }
-          table { border-collapse: collapse; width: 100%; margin-bottom: 10pt; }
-          th, td { border: 1px solid black; padding: 4pt; text-align: left; }
-          h1, h2, h3, h4, h5, h6 { margin-top: 12pt; margin-bottom: 3pt; color: black; }
+          body { font-family: Arial, sans-serif; font-size: 10pt; margin: 0.3in; }
+          table { border-collapse: collapse; width: 100%; margin-bottom: 6pt; }
+          th, td { border: 1px solid black; padding: 3pt; text-align: left; }
+          h1, h2, h3, h4, h5, h6 { margin-top: 10pt; margin-bottom: 2pt; color: black; }
           .print-hidden-explicit { display: none; }
+          .print-page-break-before { page-break-before: always; }
         </style>
       </head>
       <body>`;
@@ -457,7 +460,7 @@ const CompleteReportPage: React.FC = () => {
   );
 
   const TableOfContents = () => (
-    <section id="table-of-contents" className="toc-section print-page-break-before py-12 px-8 bg-white dark:bg-gray-950">
+    <section id="table-of-contents" className="toc-section print-page-break-before py-12 px-8 bg-white dark:bg-gray-950" style={{ pageBreakBefore: 'always' }}>
       <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 border-b-2 border-slate-300 dark:border-gray-700 pb-2">Table of Contents</h2>
       <ol className="list-decimal pl-5 space-y-2 toc-list">
         <li>
@@ -485,7 +488,7 @@ const CompleteReportPage: React.FC = () => {
   };
 
   const EnhancedSummarySection = () => (
-    <section id="enhanced-summary-section" className="py-10 px-8 bg-white dark:bg-gray-950 print-page-break-before">
+    <section id="enhanced-summary-section" className="py-10 px-8 bg-white dark:bg-gray-950 print-page-break-before" style={{ pageBreakBefore: 'always' }}>
         <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6 border-b-2 border-slate-300 dark:border-gray-700 pb-2">Overall Summary for {clientName}</h2>
         
         <div className="mb-8 p-6 bg-blue-50 dark:bg-sky-900/50 rounded-lg shadow-lg border border-blue-200 dark:border-sky-800 print-no-break">
@@ -597,8 +600,8 @@ const CompleteReportPage: React.FC = () => {
   return (
     <>
       {/* Navigation and Action Bar - Hidden in Print */}
-      <div className="sticky top-[64px] bg-blue-100 dark:bg-gray-900 p-3 shadow-md z-40 flex flex-col sm:flex-row justify-between items-center print-hidden print-hidden-explicit">
-        <div className="flex items-center space-x-2 mb-2 sm:mb-0">
+      <div className="sticky top-[64px] bg-blue-100 dark:bg-gray-900 p-3 shadow-md z-40 flex flex-col sm:flex-row justify-between items-center print-hidden print-hidden-explicit space-y-2 sm:space-y-0">
+        <div className="flex items-center space-x-2">
           <button
             onClick={handlePreviousSection}
             disabled={currentSectionIndex === 0}
@@ -606,7 +609,7 @@ const CompleteReportPage: React.FC = () => {
           >
             &larr; Previous Section
           </button>
-          <span className="text-xs text-blue-800 dark:text-sky-200 font-medium">
+          <span className="text-xs text-blue-800 dark:text-sky-200 font-medium whitespace-nowrap">
              Section {currentSectionIndex + 1} of {sectionIds.length}: {sectionIds[currentSectionIndex]?.replace('loc-', '').replace('report-cover', 'Cover Page').replace('table-of-contents', 'Table of Contents').replace('enhanced-summary-section', 'Overall Summary')}
           </span>
           <button
@@ -617,25 +620,34 @@ const CompleteReportPage: React.FC = () => {
             Next Section &rarr;
           </button>
         </div>
+        
         <div className="flex items-center space-x-2">
+          <select
+              value={template}
+              onChange={(e) => setTemplate(e.target.value as 'standard' | 'entech')}
+              className="px-2 py-1.5 text-xs border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+          >
+              <option value="standard">Standard Template</option>
+              <option value="entech">Entech Template</option>
+          </select>
            <button
             onClick={() => navigate('/client-reports')}
             className="px-3 py-1.5 bg-slate-500 hover:bg-slate-600 text-white text-xs font-semibold rounded-md shadow"
             >
-            Back to Client Selection
+            Back
             </button>
           <button
             onClick={handlePrint}
-            className="px-3 py-1.5 bg-[#10B981] hover:bg-[#059669] text-white text-xs font-semibold rounded-md shadow"
+            className="px-3 py-1.5 bg-[#10B981] hover:bg-[#059669] text-white text-xs font-semibold rounded-md shadow whitespace-nowrap"
           >
             Print / Save as PDF
           </button>
            <button
             onClick={handleSaveAsWord}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow whitespace-nowrap"
             title="Experimental: Save as .doc. Formatting may vary."
           >
-            Save as Word (Experimental)
+            Save as Word
           </button>
         </div>
       </div>
@@ -644,21 +656,30 @@ const CompleteReportPage: React.FC = () => {
       <div ref={reportContainerRef} className="container mx-auto max-w-4xl p-0 sm:p-2 md:p-4 bg-white dark:bg-black shadow-none sm:shadow-lg report-view-container"> 
         <div className="report-watermark print-hidden-explicit">{COMPANY_NAME}</div>
         
-        <ReportCoverPage />
+        {template !== 'entech' && (
+          <>
+            <ReportCoverPage />
+            <TableOfContents />
+            <EnhancedSummarySection />
+          </>
+        )}
 
-        <TableOfContents />
-        
-        <EnhancedSummarySection />
-
-        {inspections.map((inspection, index) => (
-          <div key={inspection.id} className="report-location-section-wrapper print-page-break-before py-10 px-8 bg-white dark:bg-gray-950">
-            <ReportLocationSection
-              inspection={inspection}
-              currentUserEmail={currentUser?.email || 'N/A'}
-              sectionNumber={index + 1}
-            />
-          </div>
-        ))}
+        {inspections.map((inspection, index) => {
+          const isFirstElement = template === 'entech' && index === 0;
+          return (
+            <div key={inspection.id} className={`report-location-section-wrapper ${isFirstElement ? '' : 'print-page-break-before'} ${template === 'entech' ? 'print:p-0' : 'py-10 px-8'} bg-white dark:bg-gray-950`} style={{ pageBreakBefore: isFirstElement ? 'auto' : 'always' }}>
+              {template === 'entech' ? (
+                 <EntechReportTemplate inspection={inspection} />
+              ) : (
+                 <ReportLocationSection
+                   inspection={inspection}
+                   currentUserEmail={currentUser?.email || 'N/A'}
+                   sectionNumber={index + 1}
+                 />
+              )}
+            </div>
+          );
+        })}
 
 
         <footer className="text-center p-6 mt-10 border-t border-slate-300 dark:border-gray-700 text-xs text-slate-500 dark:text-gray-400 bg-slate-50 dark:bg-gray-950 print-no-break">

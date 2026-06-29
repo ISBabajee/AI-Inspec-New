@@ -121,13 +121,13 @@ const SiteEngineerCustomersView: React.FC<SiteEngineerCustomersViewProps> = ({ o
               const locationsForClient = allSiteLocations.filter(loc => loc.clientId === client.id);
               return (
               <div key={client.id} className="bg-white dark:bg-slate-800 rounded-lg shadow-md border border-slate-200 dark:border-slate-700">
-                <button onClick={() => toggleClient(client.id)} className="w-full text-left p-4 flex justify-between items-center">
+                <div onClick={() => toggleClient(client.id)} className="w-full text-left p-4 flex justify-between items-center cursor-pointer">
                   <span className="font-semibold text-purple-600 dark:text-purple-400 text-lg">{client.name}</span>
                   <div className="flex items-center gap-4">
                      <button onClick={(e) => { e.stopPropagation(); onSwitchView('records', client.name)}} className="text-xs px-3 py-1 bg-purple-500 hover:bg-purple-600 text-white rounded-md shadow">View Records</button>
                      <svg className={`w-5 h-5 text-slate-500 transition-transform ${expandedClients.has(client.id) ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                   </div>
-                </button>
+                </div>
                 {expandedClients.has(client.id) && (
                   <div className="px-4 pb-4 border-t border-slate-200 dark:border-slate-700">
                     {locationsForClient.length === 0 && <p className="text-sm text-slate-500 dark:text-gray-400 py-3 text-center">No managed locations for this client.</p>}

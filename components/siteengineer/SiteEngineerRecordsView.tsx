@@ -770,7 +770,7 @@ const EfficiencyAnalysis: React.FC<{ inspection: InspectionRecord }> = ({ inspec
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           <FormRow label="Client" error={errors.clientName}>
             <FormInput value={editedInspection.clientName} onChange={e => updateField('clientName', e.target.value)} list="client-list" />
-            <datalist id="client-list">{allClients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+            <datalist id="client-list">{uniqueClientNames.map(name => <option key={name} value={name} />)}</datalist>
           </FormRow>
           <FormRow label={<>Location <button onClick={() => openAddModal('location')} className="ml-2 text-xs text-sky-500 hover:underline" disabled={!currentClient}>+ New</button></>} error={errors.location}>
             <FormInput value={editedInspection.location} onChange={e => updateField('location', e.target.value)} list="location-list" />
@@ -1045,6 +1045,7 @@ const EfficiencyAnalysis: React.FC<{ inspection: InspectionRecord }> = ({ inspec
                     </div>
                     <div className="flex items-center space-x-2 pr-2">
                         <AutoSaveIndicator status={autoSaveStatus} />
+                        <button onClick={() => navigate(`/report/${editedInspection.id}`)} className="bg-sky-500 hover:bg-sky-600 text-white font-semibold py-1.5 px-3 rounded-lg shadow text-sm">View Report</button>
                         <button onClick={handleManualSave} disabled={isSaving} className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-1.5 px-3 rounded-lg shadow text-sm disabled:opacity-50">{isSaving ? 'Saving...' : 'Save'}</button>
                     </div>
                 </div>
@@ -1077,7 +1078,7 @@ const EfficiencyAnalysis: React.FC<{ inspection: InspectionRecord }> = ({ inspec
                         <div className="grid grid-cols-2 gap-x-2 gap-y-0 text-sm">
                             <FormRow label="Client" error={errors.clientName}>
                                 <FormInput value={editedInspection.clientName} onChange={e => updateField('clientName', e.target.value)} list="client-list" />
-                                <datalist id="client-list">{allClients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+                                <datalist id="client-list">{uniqueClientNames.map(name => <option key={name} value={name} />)}</datalist>
                             </FormRow>
                              <FormRow label="Location" error={errors.location}>
                                 <FormInput value={editedInspection.location} onChange={e => updateField('location', e.target.value)} list="location-list" />
@@ -1137,8 +1138,9 @@ const EfficiencyAnalysis: React.FC<{ inspection: InspectionRecord }> = ({ inspec
                 <div className="lg:hidden sticky bottom-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border-t border-slate-200 dark:border-slate-700 p-2 flex items-center justify-between gap-2 shadow- ऊपर">
                     <AutoSaveIndicator status={autoSaveStatus} />
                     <div className="flex items-center gap-2">
-                        <button onClick={handleManualSave} disabled={isSaving} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg shadow text-sm disabled:opacity-50">{isSaving ? 'Saving...' : 'Save'}</button>
-                        <button onClick={handleAnalysisClick} disabled={!editedInspection.irImageBase64 || isLoadingAnalysis || editedInspection.inspectionStatus === 'pending-analysis'} className="px-4 py-2 bg-brand-orange hover:bg-amber-600 text-white font-semibold rounded-lg shadow text-sm disabled:bg-slate-400 disabled:cursor-not-allowed">
+                        <button onClick={() => navigate(`/report/${editedInspection.id}`)} className="px-3 py-2 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-lg shadow text-xs sm:text-sm">Report</button>
+                        <button onClick={handleManualSave} disabled={isSaving} className="px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg shadow text-xs sm:text-sm disabled:opacity-50">{isSaving ? 'Saving...' : 'Save'}</button>
+                        <button onClick={handleAnalysisClick} disabled={!editedInspection.irImageBase64 || isLoadingAnalysis || editedInspection.inspectionStatus === 'pending-analysis'} className="px-3 py-2 bg-brand-orange hover:bg-amber-600 text-white font-semibold rounded-lg shadow text-xs sm:text-sm disabled:bg-slate-400 disabled:cursor-not-allowed">
                             {isLoadingAnalysis ? <LoadingSpinner size="sm" /> : 'Analyze'}
                         </button>
                     </div>

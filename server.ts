@@ -73,7 +73,7 @@ async function generateContentWithRetry(
     config?: any;
   }
 ) {
-  const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -143,7 +143,7 @@ async function startServer() {
 
       const imagePart = {
         inlineData: {
-          mimeType: 'image/png',
+          mimeType: 'image/jpeg',
           data: imageBase64,
         },
       };
@@ -199,7 +199,7 @@ Guidelines:
 
       const imagePart = {
         inlineData: {
-          mimeType: 'image/png',
+          mimeType: 'image/jpeg',
           data: imageBase64,
         },
       };
@@ -260,7 +260,7 @@ Guidelines:
       const { ai, apiKey } = getAiClient(req);
 
       const irImagePart = {
-        inlineData: { mimeType: 'image/png', data: inspection.irImageBase64 },
+        inlineData: { mimeType: 'image/jpeg', data: inspection.irImageBase64 },
       };
 
       const imagePartsToSend: any[] = [irImagePart];
@@ -274,7 +274,7 @@ Guidelines:
       if (!inspection.dsImageBase64) {
         userContext += `- Note: Digital Still (DS) image was not provided. Base contextual analysis on the IR image only.\n`
       } else {
-        const dsImagePart = { inlineData: { mimeType: 'image/png', data: inspection.dsImageBase64 }};
+        const dsImagePart = { inlineData: { mimeType: 'image/jpeg', data: inspection.dsImageBase64 }};
         imagePartsToSend.push(dsImagePart);
       }
 
@@ -339,6 +339,17 @@ ${userContext}`;
       console.error("Server Error in analyze-images:", error);
       res.status(500).json({ error: error?.message || "An unknown error occurred during server image analysis." });
     }
+  });
+
+  // Catch body parser errors
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof SyntaxError && 'status' in err && err.status === 400 && 'body' in err) {
+        return res.status(400).json({ error: "Invalid JSON payload" });
+    }
+    if (err.type === 'entity.too.large') {
+        return res.status(413).json({ error: "Payload too large. The image might be too big." });
+    }
+    next(err);
   });
 
   // Vite middleware for development

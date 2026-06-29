@@ -7,6 +7,8 @@ import { InspectionRecord } from '../types';
 import ReportLocationSection from '../components/ReportLocationSection';
 import LoadingSpinner from '../components/LoadingSpinner';
 
+import EntechReportTemplate from '../components/EntechReportTemplate';
+
 const SingleReportPage: React.FC = () => {
     const { inspectionId } = useParams<{ inspectionId: string }>();
     const navigate = useNavigate();
@@ -14,6 +16,7 @@ const SingleReportPage: React.FC = () => {
     const [inspection, setInspection] = useState<InspectionRecord | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [template, setTemplate] = useState<'standard' | 'entech'>('standard');
 
     useEffect(() => {
         if (!inspectionId) {
@@ -83,7 +86,17 @@ const SingleReportPage: React.FC = () => {
                 }
             `}</style>
             <div className="print-hidden bg-white dark:bg-slate-800 p-4 shadow-md sticky top-[64px] z-30 flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-white">Print Preview</h2>
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center space-x-4">
+                    <span>Print Preview</span>
+                    <select
+                        value={template}
+                        onChange={(e) => setTemplate(e.target.value as 'standard' | 'entech')}
+                        className="ml-4 p-2 text-sm border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                    >
+                        <option value="standard">Standard Template</option>
+                        <option value="entech">Entech Template</option>
+                    </select>
+                </h2>
                 <div className="flex items-center space-x-3">
                     <button onClick={() => navigate(-1)} className="px-4 py-2 bg-slate-500 hover:bg-slate-600 text-white font-semibold rounded-md shadow transition-colors text-sm">
                         Back to Editor
@@ -93,12 +106,16 @@ const SingleReportPage: React.FC = () => {
                     </button>
                 </div>
             </div>
-            <div className="container mx-auto max-w-4xl p-4 sm:p-8 bg-white report-container">
-                <ReportLocationSection 
-                    inspection={inspection}
-                    currentUserEmail={currentUser?.email || 'N/A'}
-                    sectionNumber={1}
-                />
+            <div className={`container mx-auto max-w-4xl ${template === 'entech' ? 'print:p-0 p-0 sm:p-2' : 'p-4 sm:p-8'} bg-white report-container`}>
+                {template === 'entech' ? (
+                    <EntechReportTemplate inspection={inspection} />
+                ) : (
+                    <ReportLocationSection 
+                        inspection={inspection}
+                        currentUserEmail={currentUser?.email || 'N/A'}
+                        sectionNumber={1}
+                    />
+                )}
             </div>
         </>
     );

@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useData } from '../../hooks/useData';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../LoadingSpinner';
-import { createNewInspection, saveInspectionRecord } from '../../src/db';
+import { createNewInspection, saveInspectionRecord, addClient, addSiteLocation, addEquipment } from '../../src/db';
 import { ClientIcon, LocationIcon, EquipmentIcon } from '../Icons';
 
 interface SiteEngineerNewInspectionViewProps {
@@ -34,7 +34,7 @@ const WorkflowCard: React.FC<{
 );
 
 const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps> = ({ onBack, setCurrentInspectionById }) => {
-  const { allClients, allSiteLocations, allEquipment, loading, refreshData } = useData();
+  const { allClients, allSiteLocations, allEquipment, uniqueClientNames, allInspections, loading, refreshData } = useData();
   const { currentUser } = useAuth();
   
   const [clientSelection, setClientSelection] = useState(''); // Manages the dropdown for clients
@@ -70,16 +70,41 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
   const selectedClient = useMemo(() => allClients.find(c => c.name === clientName), [clientName, allClients]);
   
   const availableLocations = useMemo(() => {
-    if (!selectedClient) return [];
-    return allSiteLocations.filter(l => l.clientId === selectedClient.id);
-  }, [selectedClient, allSiteLocations]);
+    if (!clientName) return [];
+    
+    // First, get explicit site locations if we have a client entity
+    const locations = selectedClient ? allSiteLocations.filter(l => l.clientId === selectedClient.id) : [];
+    
+    // Then add any ad-hoc locations from existing inspections
+    const existingLocNames = new Set(locations.map(l => l.name));
+    allInspections.forEach(insp => {
+        if (insp.clientName === clientName && insp.location && !existingLocNames.has(insp.location)) {
+            existingLocNames.add(insp.location);
+            locations.push({ id: `adhoc-${insp.location}`, clientId: selectedClient?.id || 'adhoc', name: insp.location, address: '' });
+        }
+    });
+    
+    return locations;
+  }, [clientName, selectedClient, allSiteLocations, allInspections]);
   
   const selectedLocation = useMemo(() => availableLocations.find(l => l.name === locationName), [locationName, availableLocations]);
   
   const availableEquipment = useMemo(() => {
-      if(!selectedLocation) return [];
-      return allEquipment.filter(e => e.locationId === selectedLocation.id);
-  }, [selectedLocation, allEquipment]);
+      if(!locationName || !clientName) return [];
+      
+      const equipment = selectedLocation && !selectedLocation.id.startsWith('adhoc-') 
+        ? allEquipment.filter(e => e.locationId === selectedLocation.id) 
+        : [];
+        
+      const existingEqNames = new Set(equipment.map(e => e.name));
+      allInspections.forEach(insp => {
+          if (insp.clientName === clientName && insp.location === locationName && insp.component && !existingEqNames.has(insp.component)) {
+              existingEqNames.add(insp.component);
+              equipment.push({ id: `adhoc-${insp.component}`, clientId: selectedClient?.id || 'adhoc', locationId: selectedLocation?.id || 'adhoc', name: insp.component, details: insp.machineDetails || '', createdAt: new Date(), updatedAt: new Date() });
+          }
+      });
+      return equipment;
+  }, [clientName, locationName, selectedClient, selectedLocation, allEquipment, allInspections]);
 
   const handleEquipmentSelection = (id: string) => {
     const eq = availableEquipment.find(e => e.id === id);
@@ -100,6 +125,38 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
     setIsCreating(true);
     try {
         if (!currentUser) throw new Error("User not authenticated");
+        
+        let finalClientId = selectedClient?.id;
+        if (!finalClientId && clientName.trim()) {
+             const newClient = await addClient({
+                 name: clientName.trim(),
+                 address: '',
+                 contactDetails: ''
+             });
+             finalClientId = newClient.id;
+        }
+
+        let finalLocationId = selectedLocation?.id;
+        if (!finalLocationId && locationName.trim() && finalClientId) {
+             const newLoc = await addSiteLocation({
+                 clientId: finalClientId,
+                 name: locationName.trim(),
+                 address: ''
+             });
+             finalLocationId = newLoc.id;
+        }
+
+        let finalEqId = availableEquipment.find(e => e.name === equipmentName.trim())?.id;
+        if (!finalEqId && equipmentName.trim() && finalLocationId && finalClientId) {
+             const newEq = await addEquipment({
+                 clientId: finalClientId,
+                 locationId: finalLocationId,
+                 name: equipmentName.trim(),
+                 details: equipmentDetails.trim()
+             });
+             finalEqId = newEq.id;
+        }
+
         const newRecord = createNewInspection(currentUser.id);
         newRecord.clientName = clientName.trim();
         newRecord.location = locationName.trim();
@@ -115,7 +172,7 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
     } finally {
         setIsCreating(false);
     }
-  }, [clientName, locationName, equipmentName, equipmentDetails, currentUser, refreshData, setCurrentInspectionById]);
+  }, [clientName, locationName, equipmentName, equipmentDetails, currentUser, refreshData, setCurrentInspectionById, selectedClient, selectedLocation, availableEquipment]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-full"><LoadingSpinner text="Loading data..." /></div>;
@@ -137,7 +194,7 @@ const SiteEngineerNewInspectionView: React.FC<SiteEngineerNewInspectionViewProps
                 className="w-full p-2 border border-slate-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-slate-900 dark:text-white"
             >
                 <option value="">-- Select a Client --</option>
-                {allClients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                {uniqueClientNames.map(name => <option key={name} value={name}>{name}</option>)}
                 <option value="__NEW__">-- Create a New Client --</option>
             </select>
             {clientSelection === '__NEW__' && (
