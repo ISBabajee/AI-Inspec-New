@@ -118,7 +118,10 @@ const App: React.FC = () => {
                   </span>
                 </div>
                 {currentUser.role === UserRole.ADMIN && (
-                  <Link to="/admin/dashboard" className="hidden sm:inline text-xs sm:text-sm hover:text-red-200 font-medium">Admin Panel</Link>
+                  <>
+                    <Link to="/dashboard" className="hidden sm:inline text-xs sm:text-sm hover:text-red-200 font-medium">Engineer Dashboard</Link>
+                    <Link to="/admin/dashboard" className="hidden sm:inline text-xs sm:text-sm hover:text-red-200 font-medium">Admin Panel</Link>
+                  </>
                 )}
                  {currentUser.role === UserRole.SITE_ENGINEER && (
                   <Link to="/dashboard" className="hidden sm:inline text-xs sm:text-sm hover:text-red-200 font-medium">Dashboard</Link>
@@ -156,7 +159,7 @@ const App: React.FC = () => {
             <Route
               path="/dashboard"
               element={
-                currentUser && currentUser.role === UserRole.SITE_ENGINEER && currentUser.status === 'approved' ? (
+                currentUser && (currentUser.role === UserRole.SITE_ENGINEER || currentUser.role === UserRole.ADMIN) && currentUser.status === 'approved' ? (
                   <SiteEngineerDashboardPage />
                 ) : (
                   <Navigate to="/signin" />

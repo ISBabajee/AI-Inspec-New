@@ -6,6 +6,7 @@ import { useAdmin } from '../../hooks/useAdmin';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { InspectionRecord, User } from '../../types';
 import InspectionSummaryModal from '../../components/InspectionSummaryModal';
+import { deleteInspectionRecord } from '../../src/db';
 
 interface ClientStats {
   totalInspections: number;
@@ -15,7 +16,7 @@ interface ClientStats {
 
 const AdminClientOverviewPage: React.FC = () => {
   const navigate = useNavigate();
-  const { allInspections, allClients, loading: isLoadingData, error: dataError } = useData();
+  const { allInspections, allClients, loading: isLoadingData, error: dataError, refreshData } = useData();
   const { allUsers, loading: loadingAdminData } = useAdmin();
   
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
@@ -81,6 +82,18 @@ const AdminClientOverviewPage: React.FC = () => {
 
   const handleEditReport = (inspectionId: string) => {
     navigate(`/admin/edit-report/${inspectionId}`);
+  };
+
+  const handleDeleteInspection = async (inspection: InspectionRecord) => {
+    if (window.confirm(`Are you sure you want to delete this inspection from ${new Date(inspection.createdAt).toLocaleDateString()}? This action cannot be undone.`)) {
+      try {
+        await deleteInspectionRecord(inspection.id);
+        refreshData();
+      } catch (err) {
+        alert("Failed to delete inspection.");
+        console.error(err);
+      }
+    }
   };
 
   const getSiteEngineerEmail = (userId?: string): string => {
@@ -167,9 +180,17 @@ const AdminClientOverviewPage: React.FC = () => {
 
       {/* Inspections List */}
       <div className="mt-6">
-        <h2 className="text-2xl font-semibold text-slate-700 dark:text-white mb-4">
-            {selectedClient ? <span>Inspections for: <span className="text-brand-dark dark:text-brand-light-blue">{selectedClient}</span></span> : "All Recent Inspections (Last 50)"}
-        </h2>
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4">
+          <h2 className="text-2xl font-semibold text-slate-700 dark:text-white">
+              {selectedClient ? <span>Inspections for: <span className="text-brand-dark dark:text-brand-light-blue">{selectedClient}</span></span> : "All Recent Inspections (Last 50)"}
+          </h2>
+          <button 
+            onClick={() => navigate('/dashboard')}
+            className="mt-3 sm:mt-0 bg-brand-light-blue hover:bg-sky-500 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors"
+          >
+            + New Inspection
+          </button>
+        </div>
         {clientInspections.length === 0 ? (
           <p className="text-slate-500 bg-white p-4 rounded-lg shadow text-center dark:bg-gray-900 dark:text-gray-400">No inspections found.</p>
         ) : (
@@ -200,7 +221,7 @@ const AdminClientOverviewPage: React.FC = () => {
                           {inspection.inspectionStatus.replace('-', ' ')}
                       </span>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm space-x-4">
+                    <td className="px-3 py-2 whitespace-nowrap text-sm space-x-3">
                       <button
                         onClick={() => openInspectionModal(inspection)}
                         className="text-brand-orange hover:text-amber-600 font-medium hover:underline"
@@ -212,6 +233,12 @@ const AdminClientOverviewPage: React.FC = () => {
                         className="text-brand-light-blue hover:text-sky-600 font-medium hover:underline"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInspection(inspection)}
+                        className="text-red-600 hover:text-red-800 font-medium hover:underline"
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
